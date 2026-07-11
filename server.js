@@ -94,6 +94,7 @@ function getSanitizedRoomState(room, socketId) {
       connected: p.connected,
       readyToDeploy: p.readyToDeploy,
       readyToDeclare: p.readyToDeclare || false,
+      roleRevealed: p.roleRevealed || false,
       role: (isSelf || room.gameEnded) ? p.role : null,
       isBot: p.isBot || false,
       successDeclared: p.successDeclared || 0,
@@ -120,6 +121,10 @@ function getSanitizedRoomState(room, socketId) {
     history: room.history,
     successCablesTotal: room.successCablesTotal,
     successCablesCut: room.successCablesCut,
+    safeWiresCut: room.safeWiresCut || 0,
+    safeWiresTotal: room.safeWiresTotal || 0,
+    lastCutPlayerId: room.lastCutPlayerId || null,
+    lastCutCardIndex: room.lastCutCardIndex !== undefined ? room.lastCutCardIndex : null,
     boobyTrapCut: room.boobyTrapCut,
     allDeployed: room.players.every(p => p.readyToDeploy)
   };
@@ -183,6 +188,7 @@ function startDeclarationPhase(room) {
   broadcastRoomUpdate(room);
 }
 
+// Start cutting phase
 function startCuttingPhase(room) {
   room.roundPhase = 'cutting';
   if (room.declarationIntervalId) {
@@ -191,6 +197,44 @@ function startCuttingPhase(room) {
   }
   addLog(room, 'system', `宣告階段結束！第 ${room.round} 輪剪線行動正式開始。`);
   triggerBotCutIfActive(room);
+  broadcastRoomUpdate(room);
+}
+
+// Proceed to next round helper
+function proceedToNextRound(room) {
+  if (!room.gameStarted || room.gameEnded || room.roundPhase !== 'round_ending') return;
+
+  const nextRound = room.round + 1;
+  const unrevealedCards = [];
+  room.players.forEach(p => {
+    p.cards.forEach(c => {
+      if (!c.revealed) {
+        unrevealedCards.push(c.type);
+      }
+    });
+    p.cards = [];
+    p.readyToDeploy = false;
+    p.readyToDeclare = false;
+  });
+
+  room.deck = shuffle(unrevealedCards);
+  const cardsPerPlayer = 5 - (nextRound - 1);
+  room.players.forEach(p => {
+    const hand = [];
+    for (let i = 0; i < cardsPerPlayer; i++) {
+      hand.push(room.deck.pop());
+    }
+    p.secretHand = hand;
+  });
+
+  room.round = nextRound;
+  room.roundPhase = 'deploying';
+  room.cutsRemaining = room.players.length;
+  room.lastCutPlayerId = null;
+  room.lastCutCardIndex = null;
+
+  addLog(room, 'system', `第 ${nextRound} 輪開始！每位玩家獲得 ${cardsPerPlayer} 張牌。請部署引線繼續行動。`);
+  triggerBotsAutoDeploy(room);
   broadcastRoomUpdate(room);
 }
 
@@ -215,6 +259,7 @@ io.on('connection', (socket) => {
         connected: true,
         readyToDeploy: false,
         readyToDeclare: false,
+        roleRevealed: false,
         role: null,
         cards: [],
         secretHand: null,
@@ -231,6 +276,10 @@ io.on('connection', (socket) => {
       declarationIntervalId: null,
       cutsRemaining: 0,
       cutterOwnerId: null,
+      safeWiresCut: 0,
+      safeWiresTotal: 0,
+      lastCutPlayerId: null,
+      lastCutCardIndex: null,
       history: [],
       deck: [],
       successCablesTotal: 0,
@@ -288,6 +337,7 @@ io.on('connection', (socket) => {
       connected: true,
       readyToDeploy: false,
       readyToDeclare: false,
+      roleRevealed: false,
       role: null,
       cards: [],
       secretHand: null,
@@ -324,6 +374,7 @@ io.on('connection', (socket) => {
       connected: true,
       readyToDeploy: false,
       readyToDeclare: false,
+      roleRevealed: true,
       role: null,
       cards: [],
       secretHand: null,
@@ -371,6 +422,10 @@ io.on('connection', (socket) => {
     room.cutsRemaining = playerCount;
     room.successCablesTotal = playerCount;
     room.successCablesCut = 0;
+    room.safeWiresCut = 0;
+    room.safeWiresTotal = (playerCount * 4) - 1;
+    room.lastCutPlayerId = null;
+    room.lastCutCardIndex = null;
     room.boobyTrapCut = false;
     room.history = [];
 
@@ -379,6 +434,7 @@ io.on('connection', (socket) => {
       p.role = roles[idx] ? 'Sherlock' : 'Moriarty';
       p.readyToDeploy = false;
       p.readyToDeclare = false;
+      p.roleRevealed = p.isBot ? true : false;
       p.successDeclared = 0;
       p.bombDeclared = 0;
     });
@@ -403,6 +459,24 @@ io.on('connection', (socket) => {
 
     broadcastRoomUpdate(room);
     triggerBotsAutoDeploy(room);
+  });
+
+  // Event: Confirm Role Reveal (ceremony button)
+  socket.on('confirmRoleReveal', () => {
+    let room = null;
+    for (const r of rooms.values()) {
+      if (r.players.some(p => p.id === socket.id)) {
+        room = r;
+        break;
+      }
+    }
+    if (!room || !room.gameStarted || room.gameEnded) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || player.roleRevealed) return;
+
+    player.roleRevealed = true;
+    broadcastRoomUpdate(room);
   });
 
   // Event: Deploy Cards
@@ -464,8 +538,6 @@ io.on('connection', (socket) => {
 
     player.successDeclared = sDec;
     player.bombDeclared = 0;
-
-    addLog(room, 'system', `${player.name} 宣告手牌含有成功引線：⚡ ${sDec}`);
     broadcastRoomUpdate(room);
   });
 
@@ -540,8 +612,12 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Cut action
     card.revealed = true;
     room.cutsRemaining--;
+    
+    room.lastCutPlayerId = targetPlayer.id;
+    room.lastCutCardIndex = cardIndex;
 
     const cutterOwner = room.players.find(p => p.id === socket.id);
     room.cutterOwnerId = targetPlayerId;
@@ -573,6 +649,8 @@ io.on('connection', (socket) => {
       addLog(room, 'system', '💥 莫里亞蒂陣營獲勝！引爆裝置被剪斷！炸彈爆炸了！');
       broadcastRoomUpdate(room);
       return;
+    } else if (card.type === 'safe') {
+      room.safeWiresCut++;
     }
 
     if (room.cutsRemaining === 0) {
@@ -584,44 +662,38 @@ io.on('connection', (socket) => {
           room.declarationIntervalId = null;
         }
         addLog(room, 'system', '⏳ 莫里亞蒂陣營獲勝！時間耗盡（4輪結束），倫敦化為廢墟！');
+        broadcastRoomUpdate(room);
       } else {
-        const nextRound = room.round + 1;
-        addLog(room, 'system', `第 ${room.round} 輪結束！正在收集並重新洗牌未剪斷的引線...`);
-
-        const unrevealedCards = [];
-        room.players.forEach(p => {
-          p.cards.forEach(c => {
-            if (!c.revealed) {
-              unrevealedCards.push(c.type);
-            }
-          });
-          p.cards = [];
-          p.readyToDeploy = false;
-          p.readyToDeclare = false;
-        });
-
-        room.deck = shuffle(unrevealedCards);
-        const cardsPerPlayer = 5 - (nextRound - 1);
-        room.players.forEach(p => {
-          const hand = [];
-          for (let i = 0; i < cardsPerPlayer; i++) {
-            hand.push(room.deck.pop());
-          }
-          p.secretHand = hand;
-        });
-
-        room.round = nextRound;
-        room.cutsRemaining = room.players.length;
-
-        addLog(room, 'system', `第 ${nextRound} 輪開始！每位玩家獲得 ${cardsPerPlayer} 張牌。請部署引線繼續行動。`);
-        triggerBotsAutoDeploy(room);
+        room.roundPhase = 'round_ending';
+        addLog(room, 'system', `本輪剪線已耗盡！請檢查翻牌結果。等待房主點擊開啟下一輪任務...`);
+        broadcastRoomUpdate(room);
       }
     } else {
       addLog(room, 'system', `${targetPlayer.name} 現在持有了剪線鉗。本輪還剩 ${room.cutsRemaining} 次剪線機會。`);
       triggerBotCutIfActive(room);
+      broadcastRoomUpdate(room);
+    }
+  });
+
+  // Event: Start Next Round (called by Host during round_ending phase)
+  socket.on('startNextRound', () => {
+    let room = null;
+    for (const r of rooms.values()) {
+      if (r.players.some(p => p.id === socket.id)) {
+        room = r;
+        break;
+      }
     }
 
-    broadcastRoomUpdate(room);
+    if (!room || !room.gameStarted || room.gameEnded || room.roundPhase !== 'round_ending') return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.host) {
+      socket.emit('errorMsg', '只有房主才能點擊開始下一輪。');
+      return;
+    }
+
+    proceedToNextRound(room);
   });
 
   // Event: Disconnect
@@ -784,6 +856,9 @@ function scheduleBotCut(room) {
 
     card.revealed = true;
     room.cutsRemaining--;
+    
+    room.lastCutPlayerId = targetPlayer.id;
+    room.lastCutCardIndex = cardIndex;
 
     room.cutterOwnerId = targetPlayer.id;
 
@@ -814,6 +889,8 @@ function scheduleBotCut(room) {
       addLog(room, 'system', '💥 莫里亞蒂陣營獲勝！引爆裝置被剪斷！炸彈爆炸了！');
       broadcastRoomUpdate(room);
       return;
+    } else if (card.type === 'safe') {
+      room.safeWiresCut++;
     }
 
     if (room.cutsRemaining === 0) {
@@ -825,44 +902,17 @@ function scheduleBotCut(room) {
           room.declarationIntervalId = null;
         }
         addLog(room, 'system', '⏳ 莫里亞蒂陣營獲勝！時間耗盡（4輪結束），倫敦化為廢墟！');
+        broadcastRoomUpdate(room);
       } else {
-        const nextRound = room.round + 1;
-        addLog(room, 'system', `第 ${room.round} 輪結束！正在收集並重新洗牌未剪斷的引線...`);
-
-        const unrevealedCards = [];
-        room.players.forEach(p => {
-          p.cards.forEach(c => {
-            if (!c.revealed) {
-              unrevealedCards.push(c.type);
-            }
-          });
-          p.cards = [];
-          p.readyToDeploy = false;
-          p.readyToDeclare = false;
-        });
-
-        room.deck = shuffle(unrevealedCards);
-        const cardsPerPlayer = 5 - (nextRound - 1);
-        room.players.forEach(p => {
-          const hand = [];
-          for (let i = 0; i < cardsPerPlayer; i++) {
-            hand.push(room.deck.pop());
-          }
-          p.secretHand = hand;
-        });
-
-        room.round = nextRound;
-        room.cutsRemaining = room.players.length;
-
-        addLog(room, 'system', `第 ${nextRound} 輪開始！每位玩家獲得 ${cardsPerPlayer} 張牌。請部署引線繼續行動。`);
-        triggerBotsAutoDeploy(room);
+        room.roundPhase = 'round_ending';
+        addLog(room, 'system', `本輪剪線已耗盡！請檢查翻牌結果。等待房主點擊開啟下一輪任務...`);
+        broadcastRoomUpdate(room);
       }
     } else {
       addLog(room, 'system', `${targetPlayer.name} 現在持有了剪線鉗。本輪還剩 ${room.cutsRemaining} 次剪線機會。`);
       triggerBotCutIfActive(room);
+      broadcastRoomUpdate(room);
     }
-
-    broadcastRoomUpdate(room);
   }, 2500 + Math.random() * 1500);
 }
 

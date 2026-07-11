@@ -176,6 +176,7 @@ const buttons = {
     startGame: document.getElementById('btn-start-game'),
     addBot: document.getElementById('btn-add-bot'),
     deployConfirm: document.getElementById('btn-deploy-confirm'),
+    confirmRole: document.getElementById('btn-confirm-role'),
     restart: document.getElementById('btn-restart'),
     revealRole: document.getElementById('btn-reveal-role')
 };
@@ -187,6 +188,8 @@ const displays = {
     lobbyStatusMsg: document.getElementById('lobby-status-msg'),
     progressBar: document.getElementById('progress-bar'),
     progressText: document.getElementById('progress-text'),
+    safeProgressBar: document.getElementById('safe-progress-bar'),
+    safeProgressText: document.getElementById('safe-progress-text'),
     cutsRemainingVal: document.getElementById('cuts-remaining-val'),
     cutsTotalVal: document.getElementById('cuts-total-val'),
     playersRing: document.getElementById('players-ring'),
@@ -194,6 +197,11 @@ const displays = {
     roleBadgeText: document.getElementById('role-badge-text'),
     deployModal: document.getElementById('deploy-modal'),
     secretWiresReveal: document.getElementById('secret-wires-reveal'),
+    roleRevealModal: document.getElementById('role-reveal-modal'),
+    rrRoleInfo: document.getElementById('rr-role-info'),
+    rrRoleTitle: document.getElementById('rr-role-title'),
+    rrRoleDesc: document.getElementById('rr-role-desc'),
+    rrStampBox: document.getElementById('rr-stamp-box'),
     gameOverModal: document.getElementById('game-over-modal'),
     gameOverContent: document.getElementById('game-over-content'),
     gameOverTitle: document.getElementById('game-over-title'),
@@ -215,6 +223,7 @@ function setupEventListeners() {
     buttons.startGame.addEventListener('click', onStartGame);
     buttons.addBot.addEventListener('click', onAddBot);
     buttons.deployConfirm.addEventListener('click', onDeployConfirm);
+    buttons.confirmRole.addEventListener('click', onConfirmRoleReveal);
     buttons.restart.addEventListener('click', onRestart);
     
     // Inputs (Enter key triggers)
@@ -246,7 +255,6 @@ function onCreateRoom() {
     socket.emit('createRoom', { name });
 }
 
-// Join room click event
 function onJoinRoom() {
     AudioSynth.playTick();
     const name = inputs.name.value.trim();
@@ -276,6 +284,12 @@ function onAddBot() {
     if (isHost) {
         socket.emit('addBot');
     }
+}
+
+function onConfirmRoleReveal() {
+    AudioSynth.playTick();
+    displays.roleRevealModal.classList.remove('active');
+    socket.emit('confirmRoleReveal');
 }
 
 function onDeployConfirm() {
@@ -335,10 +349,11 @@ socket.on('roomCreated', (code) => {
     switchView('waiting');
 });
 
-// SOUND LOGIC FOR STATE CHANGES (Tracks cuts and explosions)
+// SOUND LOGIC FOR STATE CHANGES
 let previousCutsCount = 0;
 let previousSuccessCablesCount = 0;
 let previousGameEnded = false;
+let activeRoleModalRevealed = false; // Tracks if the stamp animation has run in this round
 
 socket.on('roomUpdate', (state) => {
     console.log('Room state updated:', state);
@@ -347,7 +362,6 @@ socket.on('roomUpdate', (state) => {
     const me = state.players.find(p => p.id === myId);
     if (me) {
         isHost = me.host;
-        // Check if role is assigned (and render my dossier card)
         if (me.role) {
             displays.roleCardFront.className = `role-card-front ${me.role.toLowerCase()}`;
             displays.roleBadgeText.textContent = me.role === 'Sherlock' ? '大偵探 (藍隊)' : '莫里亞蒂 (紅隊)';
@@ -358,8 +372,42 @@ socket.on('roomUpdate', (state) => {
     if (!state.gameStarted) {
         switchView('waiting');
         renderWaitingRoom(state);
+        activeRoleModalRevealed = false; // Reset role animation lock
     } else {
         switchView('game');
+        
+        // CEREMONIAL ROLE REVEAL CHECK (at game start or when first assigned)
+        if (me && me.role && !me.roleRevealed) {
+            if (!activeRoleModalRevealed) {
+                activeRoleModalRevealed = true;
+                displays.roleRevealModal.classList.add('active');
+                displays.rrStampBox.className = 'role-reveal-stamp-box';
+                displays.rrRoleInfo.classList.add('hidden');
+
+                const panel = displays.roleRevealModal.querySelector('.steampunk-panel');
+                panel.className = 'modal-content steampunk-panel role-reveal-panel';
+
+                if (me.role === 'Sherlock') {
+                    panel.classList.add('sherlock-revealed');
+                    displays.rrRoleTitle.textContent = '大偵探 (藍隊) 🔍';
+                    displays.rrRoleDesc.textContent = '你是藍隊大偵探。與探員語音討論，找出所有成功引線以拆除炸彈！小心別剪到紅色引爆裝置。';
+                } else {
+                    panel.classList.add('moriarty-revealed');
+                    displays.rrRoleTitle.textContent = '莫里亞蒂 (紅隊) 💥';
+                    displays.rrRoleDesc.textContent = '你是紅隊莫里亞蒂。散布假線索，引誘大偵探剪斷引爆裝置，或拖延 4 輪時間以引爆炸彈！';
+                }
+
+                // Play stamp sound cue and trigger animations
+                setTimeout(() => {
+                    displays.rrStampBox.classList.add('stamped-out');
+                    displays.rrRoleInfo.classList.remove('hidden');
+                    AudioSynth.playSnip(); // simulated stamping heavy snap
+                }, 1300);
+            }
+        } else {
+            displays.roleRevealModal.classList.remove('active');
+        }
+
         renderGameBoard(state, me);
     }
 });
@@ -431,13 +479,23 @@ window.confirmSelfDeclaration = function() {
     socket.emit('confirmDeclaration');
 };
 
+// Global start next round trigger (Host only)
+window.startNextRound = function() {
+    AudioSynth.playTick();
+    socket.emit('startNextRound');
+};
+
 // RENDER: GAME
 function renderGameBoard(state, me) {
-    // 1. Dashboard updates
+    // 1. Dashboard Wires Progress bars
     const progressPercent = (state.successCablesCut / state.successCablesTotal) * 100;
     displays.progressBar.style.width = `${progressPercent}%`;
     displays.progressText.textContent = `${state.successCablesCut} / ${state.successCablesTotal}`;
     
+    const safePercent = state.safeWiresTotal > 0 ? (state.safeWiresCut / state.safeWiresTotal) * 100 : 0;
+    displays.safeProgressBar.style.width = `${safePercent}%`;
+    displays.safeProgressText.textContent = `${state.safeWiresCut} / ${state.safeWiresTotal}`;
+
     // Valves (Rounds)
     document.querySelectorAll('.valve').forEach(valve => {
         const rnd = parseInt(valve.dataset.round);
@@ -495,6 +553,15 @@ function renderGameBoard(state, me) {
         banner.innerHTML = `【 剪線階段 】 剪線鉗目前由 <strong style="color:var(--color-brass);">${escapeHTML(cutterName)}</strong> 持有！`;
         banner.style.borderColor = 'var(--color-good-blue)';
         banner.style.background = 'rgba(0, 188, 212, 0.05)';
+    } else if (state.roundPhase === 'round_ending') {
+        const nextRnd = state.round + 1;
+        if (me && me.host) {
+            banner.innerHTML = `【 輪次結束 】 本輪剪線已耗盡！請檢查翻牌結果。 <button class="btn btn-gold" style="padding: 4px 12px; font-size: 0.8rem; margin-left: 15px;" onclick="startNextRound()">開啟第 ${nextRnd} 輪任務</button>`;
+        } else {
+            banner.textContent = `【 輪次結束 】 本輪剪線已耗盡！請檢查翻牌結果。等待房主開啟第 ${nextRnd} 輪...`;
+        }
+        banner.style.borderColor = 'var(--color-bad-red)';
+        banner.style.background = 'rgba(238, 76, 64, 0.08)';
     }
 
     // 4. Render players cards board ring
@@ -535,7 +602,13 @@ function renderGameBoard(state, me) {
                 wire.classList.add('flipped');
             }
 
-            // Cutter rules: Can cut if I have cutter, not my cards, all players deployed, card face down, cutting phase, and game is active
+            // High intensity glow effect for the card that was just cut
+            const isJustCut = state.lastCutPlayerId === p.id && state.lastCutCardIndex === idx;
+            if (isJustCut) {
+                wire.classList.add('just-cut');
+            }
+
+            // Cutter rules
             const allowedToCut = hasWireCutter && p.id !== myId && state.roundPhase === 'cutting' && !c.revealed && !state.gameEnded;
             if (allowedToCut) {
                 wire.classList.add('can-cut');
@@ -621,7 +694,7 @@ function renderGameBoard(state, me) {
     });
 
     // 5. Secret Wires Preview (Deploy modal)
-    if (me && me.secretHand && !me.readyToDeploy) {
+    if (me && me.secretHand && !me.readyToDeploy && me.roleRevealed) {
         displays.deployModal.classList.add('active');
         displays.secretWiresReveal.innerHTML = '';
         

@@ -72,7 +72,7 @@
                         <li><strong>最少人數:</strong> 4 人</li>
                         <li><strong>最多人數:</strong> 8 人</li>
                         <li><strong>最長輪數:</strong> 4 輪</li>
-                        <li><strong>拆彈目标:</strong> 找到等同於玩家人數的成功引線</li>
+                        <li><strong>拆彈目標:</strong> 找到等同於玩家人數的成功引線</li>
                     </ul>
                     <div class="host-controls">
                         <p id="lobby-status-msg" class="status-msg">等待其他探員加入...</p>
@@ -91,11 +91,17 @@
         <div id="game-view" class="view">
             <!-- Top Dashboard Bar -->
             <div class="game-dashboard">
+                <!-- Combined Wires Progress counters -->
                 <div class="dash-item success-progress">
                     <div class="dash-label">已找到成功引線</div>
                     <div class="progress-bar-container">
                         <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
                         <span id="progress-text" class="progress-text">0 / 0</span>
+                    </div>
+                    <div class="dash-label" style="margin-top: 8px;">已剪安全引線</div>
+                    <div class="progress-bar-container">
+                        <div id="safe-progress-bar" class="progress-bar" style="width: 0%; background: linear-gradient(90deg, #4d3326 0%, #8b5a2b 100%); box-shadow: 0 0 10px rgba(139,90,43,0.5);"></div>
+                        <span id="safe-progress-text" class="progress-text">0 / 0</span>
                     </div>
                 </div>
                 
@@ -131,7 +137,7 @@
                 </div>
             </div>
 
-            <!-- Main Play Area (No Sidebar!) -->
+            <!-- Main Play Area -->
             <div class="game-layout">
                 <div class="board-container">
                     <div id="players-ring" class="players-ring">
@@ -144,6 +150,30 @@
             <div id="action-ticker" class="action-ticker">
                 <span class="ticker-label">電報日誌：</span>
                 <span id="ticker-text" class="ticker-text">等待探員開始行動...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- SECRET ROLE REVEAL MODAL (Ceremonial start of game) -->
+    <div id="role-reveal-modal" class="modal-overlay">
+        <div class="modal-content steampunk-panel role-reveal-panel">
+            <h2 class="modal-title" style="font-family:'Cinzel Decorative'; font-size:1.6rem; color:var(--color-brass);">大英帝國機密檔案</h2>
+            <p class="modal-subtitle">探員身份已秘密分配，請確認你的指令</p>
+            
+            <div class="role-reveal-anim-area">
+                <div class="role-reveal-stamp-box" id="rr-stamp-box">
+                    <span class="stamp-confidential">極度機密</span>
+                </div>
+                <div id="rr-role-info" class="rr-role-info hidden">
+                    <h1 id="rr-role-title" class="rr-role-title">大偵探 (藍隊)</h1>
+                    <p id="rr-role-desc" class="rr-role-desc">你是藍隊大偵探陣營。你的任務是找出所有的成功引線，順利拆除炸彈！</p>
+                </div>
+            </div>
+
+            <div class="modal-actions" style="margin-top:25px;">
+                <button id="btn-confirm-role" class="btn btn-gold btn-large">
+                    <span>我已了解機密任務</span>
+                </button>
             </div>
         </div>
     </div>
