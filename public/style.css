@@ -1522,3 +1522,13 @@ input[type="text"]:focus {
     85% { box-shadow: 0 0 20px #8b5a2b; border-color: var(--color-safe-brown); }
     100% { box-shadow: 0 0 0px transparent; }
 }
+
+/* Game Over Modal Minimized View */
+.modal-overlay#game-over-modal.minimized {
+    background: rgba(0, 0, 0, 0.15) !important;
+    pointer-events: none !important;
+}
+
+.modal-overlay#game-over-modal.minimized .modal-content {
+    display: none !important;
+}

@@ -178,7 +178,9 @@ const buttons = {
     deployConfirm: document.getElementById('btn-deploy-confirm'),
     confirmRole: document.getElementById('btn-confirm-role'),
     restart: document.getElementById('btn-restart'),
-    revealRole: document.getElementById('btn-reveal-role')
+    revealRole: document.getElementById('btn-reveal-role'),
+    viewBoard: document.getElementById('btn-view-board'),
+    showSummary: document.getElementById('btn-show-summary')
 };
 
 const displays = {
@@ -225,6 +227,8 @@ function setupEventListeners() {
     buttons.deployConfirm.addEventListener('click', onDeployConfirm);
     buttons.confirmRole.addEventListener('click', onConfirmRoleReveal);
     buttons.restart.addEventListener('click', onRestart);
+    buttons.viewBoard.addEventListener('click', onViewBoard);
+    buttons.showSummary.addEventListener('click', onShowSummary);
     
     // Inputs (Enter key triggers)
     inputs.roomCode.addEventListener('keypress', (e) => {
@@ -301,7 +305,21 @@ function onDeployConfirm() {
 function onRestart() {
     AudioSynth.playTick();
     displays.gameOverModal.classList.remove('active');
+    displays.gameOverModal.classList.remove('minimized');
+    buttons.showSummary.style.display = 'none';
     location.reload();
+}
+
+function onViewBoard() {
+    AudioSynth.playTick();
+    displays.gameOverModal.classList.add('minimized');
+    buttons.showSummary.style.display = 'block';
+}
+
+function onShowSummary() {
+    AudioSynth.playTick();
+    displays.gameOverModal.classList.remove('minimized');
+    buttons.showSummary.style.display = 'none';
 }
 
 // ROLE CARD TOGGLE
@@ -727,7 +745,9 @@ function renderGameBoard(state, me) {
 
     // 6. Game Over displays
     if (state.gameEnded) {
-        displays.gameOverModal.classList.add('active');
+        if (!displays.gameOverModal.classList.contains('minimized')) {
+            displays.gameOverModal.classList.add('active');
+        }
         
         if (state.winnerTeam === 'Sherlock') {
             displays.gameOverContent.className = 'modal-content steampunk-panel game-over-panel sherlock-win';
@@ -774,6 +794,8 @@ function renderGameBoard(state, me) {
         }
     } else {
         displays.gameOverModal.classList.remove('active');
+        displays.gameOverModal.classList.remove('minimized');
+        buttons.showSummary.style.display = 'none';
     }
     previousGameEnded = state.gameEnded;
 

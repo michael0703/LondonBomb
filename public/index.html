@@ -213,13 +213,21 @@
                 </div>
             </div>
 
-            <div class="modal-actions">
-                <button id="btn-restart" class="btn btn-gold btn-large">
+            <div class="modal-actions" style="display: flex; gap: 15px; justify-content: center; width: 100%;">
+                <button id="btn-restart" class="btn btn-gold btn-large" style="flex: 1;">
                     <span>返回候戰室</span>
+                </button>
+                <button id="btn-view-board" class="btn btn-brass btn-large" style="flex: 1;">
+                    <span>查看戰局</span>
                 </button>
             </div>
         </div>
     </div>
+
+    <!-- Floating button to restore game over modal when minimized -->
+    <button id="btn-show-summary" class="btn btn-gold" style="position: fixed; top: 20px; right: 20px; z-index: 100; display: none; box-shadow: 0 0 10px var(--color-brass-glow); padding: 8px 16px; font-family: var(--font-heading); font-size: 0.85rem;">
+        <span>顯示結算</span>
+    </button>
 
     <!-- Error Toast Message -->
     <div id="error-toast" class="error-toast">錯誤信息顯示在這裡</div>
