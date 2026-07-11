@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>時間炸彈 - 拆除倫敦危機</title>
+    <!-- Google Fonts for Steampunk / Victorian feel -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@600;800&family=Montserrat:wght@400;500;700&family=Special+Elite&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="steampunk-bg-overlay"></div>
+    <div class="vignette"></div>
+
+    <div class="container">
+        <!-- LOBBY VIEW (Join / Create) -->
+        <div id="lobby-view" class="view panel active">
+            <h1 class="game-title">時間炸彈</h1>
+            <h2 class="game-subtitle">倫敦大危機</h2>
+            
+            <div class="form-group">
+                <label for="player-name">請輸入你的代號</label>
+                <input type="text" id="player-name" maxlength="12" placeholder="輸入名字..." autocomplete="off">
+            </div>
+
+            <div class="lobby-actions">
+                <button id="btn-create-room" class="btn btn-gold btn-large">
+                    <span>建立遊戲房間</span>
+                </button>
+                
+                <div class="join-divider">
+                    <span>或</span>
+                </div>
+                
+                <div class="join-box">
+                    <input type="text" id="room-code-input" placeholder="輸入房間代碼" maxlength="4" autocomplete="off">
+                    <button id="btn-join-room" class="btn btn-brass">
+                        <span>加入房間</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="rules-teaser">
+                <h3>探員指令</h3>
+                <p>倫敦正面臨著一顆滴答作響的炸彈的威脅。大偵探小隊需要找出所有的「成功引線」來解除危機；而莫里亞蒂的同夥則隱藏著真實的身份，散布謊言，試圖引誘大家剪斷「引爆裝置」。請小心發言，保持懷疑。</p>
+            </div>
+        </div>
+
+        <!-- WAITING ROOM VIEW -->
+        <div id="waiting-view" class="view panel">
+            <div class="waiting-header">
+                <h2>遊戲候戰室</h2>
+                <div class="room-code-display">
+                    <span class="label">房間代碼:</span>
+                    <span id="room-code-text" class="code">----</span>
+                </div>
+            </div>
+
+            <div class="waiting-body">
+                <div class="players-list-panel">
+                    <h3>已集結探員 (<span id="player-count">0</span>/8)</h3>
+                    <div id="players-list" class="players-list">
+                        <!-- Placed dynamically -->
+                    </div>
+                </div>
+
+                <div class="lobby-info-panel">
+                    <h3>任務參數</h3>
+                    <ul class="params-list">
+                        <li><strong>最少人數:</strong> 4 人</li>
+                        <li><strong>最多人數:</strong> 8 人</li>
+                        <li><strong>最長輪數:</strong> 4 輪</li>
+                        <li><strong>拆彈目标:</strong> 找到等同於玩家人數的成功引線</li>
+                    </ul>
+                    <div class="host-controls">
+                        <p id="lobby-status-msg" class="status-msg">等待其他探員加入...</p>
+                        <button id="btn-add-bot" class="btn btn-brass" style="margin-bottom: 12px; display: none; width: 100%;">
+                            <span>新增 AI 機器人</span>
+                        </button>
+                        <button id="btn-start-game" class="btn btn-gold btn-large disabled" disabled>
+                            <span>開始部署任務</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GAME PLAY VIEW -->
+        <div id="game-view" class="view">
+            <!-- Top Dashboard Bar -->
+            <div class="game-dashboard">
+                <div class="dash-item success-progress">
+                    <div class="dash-label">已找到成功引線</div>
+                    <div class="progress-bar-container">
+                        <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+                        <span id="progress-text" class="progress-text">0 / 0</span>
+                    </div>
+                </div>
+                
+                <div class="dash-item round-valves">
+                    <div class="dash-label">當前輪次</div>
+                    <div class="valves-container">
+                        <div class="valve" data-round="1"><span>I</span></div>
+                        <div class="valve" data-round="2"><span>II</span></div>
+                        <div class="valve" data-round="3"><span>III</span></div>
+                        <div class="valve" data-round="4"><span>IV</span></div>
+                    </div>
+                </div>
+
+                <div class="dash-item cuts-gauge">
+                    <div class="dash-label">本輪剩餘剪線</div>
+                    <div class="cuts-gauge-display">
+                        <span id="cuts-remaining-val" class="cuts-val">0</span>
+                        <span class="cuts-total">/ <span id="cuts-total-val">0</span></span>
+                    </div>
+                </div>
+
+                <!-- Secret Dossier in Dashboard -->
+                <div class="dash-item role-peek-dash">
+                    <div class="dash-label">我的機密身份</div>
+                    <div class="role-card-container">
+                        <button id="btn-reveal-role" class="role-card-back">
+                            <span>長按查看身份</span>
+                        </button>
+                        <div id="role-card-front" class="role-card-front hidden">
+                            <div class="role-badge" id="role-badge-text">大偵探 (藍隊)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Play Area (No Sidebar!) -->
+            <div class="game-layout">
+                <div class="board-container">
+                    <div id="players-ring" class="players-ring">
+                        <!-- Dynamic Player Areas -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Compact Action Ticker -->
+            <div id="action-ticker" class="action-ticker">
+                <span class="ticker-label">電報日誌：</span>
+                <span id="ticker-text" class="ticker-text">等待探員開始行動...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- SECRET CARD DEPLOY MODAL (Start of round) -->
+    <div id="deploy-modal" class="modal-overlay">
+        <div class="modal-content steampunk-panel">
+            <h2 class="modal-title">檢查你的引線</h2>
+            <p class="modal-subtitle">在將你的引線背面朝上放置到桌上之前，請務必查看並記住它們。</p>
+            
+            <div class="cards-reveal-area" id="secret-wires-reveal">
+                <!-- Dynamic secret wire cards -->
+            </div>
+
+            <div class="modal-actions">
+                <button id="btn-deploy-confirm" class="btn btn-gold btn-large">
+                    <span>打亂並背面朝上部署</span>
+                </button>
+            </div>
+            <p class="warning-text">你的引線將被洗牌並以隨機順序背面朝上放置在桌上。即使是你自己，也無法知道具體哪張牌在哪個位置！</p>
+        </div>
+    </div>
+
+    <!-- GAME OVER / MISSION BRIEF MODAL -->
+    <div id="game-over-modal" class="modal-overlay">
+        <div class="modal-content steampunk-panel game-over-panel" id="game-over-content">
+            <div class="explosion-flash" id="explosion-flash"></div>
+            <h1 id="game-over-title" class="game-over-title">任務完成</h1>
+            <h2 id="game-over-subtitle" class="game-over-subtitle">大偵探小隊成功解除炸彈危機！</h2>
+            
+            <div class="game-over-details">
+                <div class="team-reveals">
+                    <h3>最終機密身份揭曉</h3>
+                    <div id="final-roles-list" class="final-roles-list">
+                        <!-- Dynamic list of players and roles -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button id="btn-restart" class="btn btn-gold btn-large">
+                    <span>返回候戰室</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Toast Message -->
+    <div id="error-toast" class="error-toast">錯誤信息顯示在這裡</div>
+
+    <!-- Socket.io client script -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
