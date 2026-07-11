@@ -624,7 +624,7 @@ io.on('connection', (socket) => {
     const cutterOwner = room.players.find(p => p.id === socket.id);
     room.cutterOwnerId = targetPlayerId;
 
-    const cardTypeName = card.type === 'success' ? '成功引線 ⚡' : card.type === 'bomb' ? '引爆裝置 💥' : '安全引線 ☕';
+    const cardTypeName = card.type === 'success' ? '成功引線 ✅' : card.type === 'bomb' ? '引爆裝置 💥' : '安全引線 ❌';
     addLog(room, 'cut', `${cutterOwner.name} 剪斷了 ${targetPlayer.name} 的引線，發現了：${cardTypeName}。`);
 
     if (card.type === 'success') {
@@ -696,6 +696,56 @@ io.on('connection', (socket) => {
     }
 
     proceedToNextRound(room);
+  });
+
+  // Event: Restart Game (called by Host to return to waiting room)
+  socket.on('restartGame', () => {
+    let room = null;
+    for (const r of rooms.values()) {
+      if (r.players.some(p => p.id === socket.id)) {
+        room = r;
+        break;
+      }
+    }
+
+    if (!room) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.host) return;
+
+    // Reset room state
+    room.gameStarted = false;
+    room.gameEnded = false;
+    room.winnerTeam = null;
+    room.round = 1;
+    room.roundPhase = 'deploying';
+    room.cutsRemaining = 0;
+    room.cutterOwnerId = null;
+    room.safeWiresCut = 0;
+    room.safeWiresTotal = 0;
+    room.lastCutPlayerId = null;
+    room.lastCutCardIndex = null;
+    room.boobyTrapCut = false;
+    room.history = [];
+    if (room.declarationIntervalId) {
+      clearInterval(room.declarationIntervalId);
+      room.declarationIntervalId = null;
+    }
+
+    // Reset players
+    room.players.forEach(p => {
+      p.readyToDeploy = false;
+      p.readyToDeclare = false;
+      p.roleRevealed = p.isBot ? true : false;
+      p.role = null;
+      p.cards = [];
+      p.secretHand = null;
+      p.successDeclared = 0;
+      p.bombDeclared = 0;
+    });
+
+    addLog(room, 'system', '房主重設了對局，返回候戰室。');
+    broadcastRoomUpdate(room);
   });
 
   // Event: Disconnect
@@ -812,7 +862,7 @@ function triggerBotsDeclarations(room) {
         p.bombDeclared = 0;
         p.readyToDeclare = true; // Bot is ready
 
-        addLog(room, 'system', `${p.name} 宣告手牌含有成功引線：⚡ ${sDec}`);
+        addLog(room, 'system', `${p.name} 宣告手牌含有成功引線：✅ ${sDec}`);
         broadcastRoomUpdate(room);
       }, 1000 + Math.random() * 2000);
     }
@@ -864,7 +914,7 @@ function scheduleBotCut(room) {
 
     room.cutterOwnerId = targetPlayer.id;
 
-    const cardTypeName = card.type === 'success' ? '成功引線 ⚡' : card.type === 'bomb' ? '引爆裝置 💥' : '安全引線 ☕';
+    const cardTypeName = card.type === 'success' ? '成功引線 ✅' : card.type === 'bomb' ? '引爆裝置 💥' : '安全引線 ❌';
     addLog(room, 'cut', `${bot.name} 剪斷了 ${targetPlayer.name} 的引線，發現了：${cardTypeName}。`);
 
     if (card.type === 'success') {

@@ -180,7 +180,8 @@ const buttons = {
     restart: document.getElementById('btn-restart'),
     revealRole: document.getElementById('btn-reveal-role'),
     viewBoard: document.getElementById('btn-view-board'),
-    showSummary: document.getElementById('btn-show-summary')
+    showSummary: document.getElementById('btn-show-summary'),
+    exitLobby: document.getElementById('btn-exit-lobby')
 };
 
 const displays = {
@@ -229,6 +230,7 @@ function setupEventListeners() {
     buttons.restart.addEventListener('click', onRestart);
     buttons.viewBoard.addEventListener('click', onViewBoard);
     buttons.showSummary.addEventListener('click', onShowSummary);
+    buttons.exitLobby.addEventListener('click', onExitLobby);
     
     // Inputs (Enter key triggers)
     inputs.roomCode.addEventListener('keypress', (e) => {
@@ -307,6 +309,11 @@ function onRestart() {
     displays.gameOverModal.classList.remove('active');
     displays.gameOverModal.classList.remove('minimized');
     buttons.showSummary.style.display = 'none';
+    socket.emit('restartGame');
+}
+
+function onExitLobby() {
+    AudioSynth.playTick();
     location.reload();
 }
 
@@ -637,10 +644,10 @@ function renderGameBoard(state, me) {
 
             // Card Inner structure
             let cardFrontClass = 'safe';
-            let iconText = '☕';
+            let iconText = '❌';
             if (c.type === 'success') {
                 cardFrontClass = 'success';
-                iconText = '⚡';
+                iconText = '✅';
             } else if (c.type === 'bomb') {
                 cardFrontClass = 'bomb';
                 iconText = '💥';
@@ -684,7 +691,7 @@ function renderGameBoard(state, me) {
                 <span class="dec-label">申報成功引線：</span>
                 <div class="dec-counter-row">
                     <div class="dec-counter">
-                        <span class="dec-icon">⚡</span>
+                        <span class="dec-icon">✅</span>
                         ${canAdjust ? `<button class="dec-btn" onclick="adjustDeclaration(-1, ${maxCards})">-</button>` : ''}
                         <span class="dec-num" id="self-dec-success">${p.successDeclared || 0}</span>
                         ${canAdjust ? `<button class="dec-btn" onclick="adjustDeclaration(1, ${maxCards})">+</button>` : ''}
@@ -702,7 +709,7 @@ function renderGameBoard(state, me) {
             }
             decDiv.innerHTML = `
                 <span class="dec-label">宣告：</span>
-                <span class="dec-val">⚡ ${p.successDeclared || 0}</span>
+                <span class="dec-val">✅ ${p.successDeclared || 0}</span>
                 ${readyBadge}
             `;
         }
@@ -719,12 +726,12 @@ function renderGameBoard(state, me) {
         me.secretHand.forEach(type => {
             const card = document.createElement('div');
             let cardClass = 'safe';
-            let icon = '☕';
+            let icon = '❌';
             let label = '安全引線';
             
             if (type === 'success') {
                 cardClass = 'success';
-                icon = '⚡';
+                icon = '✅';
                 label = '成功引線';
             } else if (type === 'bomb') {
                 cardClass = 'bomb';
