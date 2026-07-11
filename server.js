@@ -215,6 +215,8 @@ function proceedToNextRound(room) {
     p.cards = [];
     p.readyToDeploy = false;
     p.readyToDeclare = false;
+    p.successDeclared = 0;
+    p.bombDeclared = 0;
   });
 
   room.deck = shuffle(unrevealedCards);
