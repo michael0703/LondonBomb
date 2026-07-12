@@ -75,7 +75,7 @@ function selectRoles(playerCount) {
   } else if (playerCount === 6) {
     roles = [true, true, true, true, false, false];
   } else if (playerCount === 7) {
-    roles = [true, true, true, true, false, false, false, false];
+    roles = [true, true, true, true, true, false, false, false];
   } else if (playerCount === 8) {
     roles = [true, true, true, true, true, false, false, false];
   }
