@@ -204,6 +204,7 @@ const displays = {
     roleBadgeText: document.getElementById('role-badge-text'),
     deployModal: document.getElementById('deploy-modal'),
     secretWiresReveal: document.getElementById('secret-wires-reveal'),
+    handMemoText: document.getElementById('hand-memo-text'),
     roleRevealModal: document.getElementById('role-reveal-modal'),
     rrRoleInfo: document.getElementById('rr-role-info'),
     rrRoleTitle: document.getElementById('rr-role-title'),
@@ -425,6 +426,11 @@ socket.on('roomCreated', (code) => {
     switchView('waiting');
 });
 
+socket.on('kicked', () => {
+    alert('你已被房主剔除出房間。');
+    location.reload();
+});
+
 // SOUND LOGIC FOR STATE CHANGES
 let previousCutsCount = 0;
 let previousSuccessCablesCount = 0;
@@ -456,6 +462,7 @@ socket.on('roomUpdate', (state) => {
         displays.gameOverModal.classList.remove('active');
         displays.gameOverModal.classList.remove('minimized');
         buttons.showSummary.style.display = 'none';
+        displays.handMemoText.textContent = '無';
     } else {
         switchView('game');
         
@@ -505,12 +512,18 @@ function renderWaitingRoom(state) {
         const card = document.createElement('div');
         card.className = `player-lobby-card ${p.connected ? '' : 'disconnected'}`;
         
+        let kickButtonHtml = '';
+        if (isHost && p.id !== myId) {
+            kickButtonHtml = `<button class="btn btn-brass" style="padding: 2px 8px; font-size: 0.75rem; margin-left: 10px; border-color: var(--color-bad-red); color: var(--color-bad-red); cursor: pointer;" onclick="kickPlayer('${p.id}')">剔除</button>`;
+        }
+        
         card.innerHTML = `
             <div class="player-info">
                 <span class="player-name">${escapeHTML(p.name)}</span>
                 ${p.isBot ? '<span class="host-badge" style="background:rgba(205,127,50,0.8);color:#fff;">AI</span>' : ''}
                 ${p.host ? '<span class="host-badge">房主</span>' : ''}
                 ${p.id === myId ? '<span class="host-badge" style="background:#00bcd4;color:#fff;">你</span>' : ''}
+                ${kickButtonHtml}
             </div>
             <div class="conn-status"></div>
         `;
@@ -568,6 +581,14 @@ window.startNextRound = function() {
     socket.emit('startNextRound');
 };
 
+// Global kick player trigger (Host only)
+window.kickPlayer = function(targetId) {
+    AudioSynth.playTick();
+    if (confirm('確定要將該探員/機器人剔除出房間嗎？')) {
+        socket.emit('kickPlayer', { targetId });
+    }
+};
+
 // Global reveal summary trigger (Host only)
 window.revealSummary = function() {
     AudioSynth.playTick();
@@ -576,6 +597,22 @@ window.revealSummary = function() {
 
 // RENDER: GAME
 function renderGameBoard(state, me) {
+    // 0. Update Hand Memo Dashboard
+    if (me && me.initialHand && me.initialHand.length > 0) {
+        const successCount = me.initialHand.filter(t => t === 'success').length;
+        const bombCount = me.initialHand.filter(t => t === 'bomb').length;
+        const safeCount = me.initialHand.filter(t => t === 'safe').length;
+        
+        const parts = [];
+        if (successCount > 0) parts.push(`✅ ${successCount}`);
+        if (safeCount > 0) parts.push(`❌ ${safeCount}`);
+        if (bombCount > 0) parts.push(`💥 ${bombCount}`);
+        
+        displays.handMemoText.innerHTML = parts.join(' | ');
+    } else {
+        displays.handMemoText.textContent = '無';
+    }
+
     // 1. Dashboard Wires Progress bars
     const progressPercent = (state.successCablesCut / state.successCablesTotal) * 100;
     displays.progressBar.style.width = `${progressPercent}%`;

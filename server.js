@@ -103,7 +103,8 @@ function getSanitizedRoomState(room, socketId) {
         revealed: c.revealed,
         type: c.revealed || room.gameEnded ? c.type : 'hidden'
       })),
-      secretHand: isSelf && !p.readyToDeploy ? p.secretHand : null
+      secretHand: isSelf && !p.readyToDeploy ? p.secretHand : null,
+      initialHand: isSelf ? p.initialHand : null
     };
   });
 
@@ -228,6 +229,7 @@ function proceedToNextRound(room) {
       hand.push(room.deck.pop());
     }
     p.secretHand = hand;
+    p.initialHand = [...hand];
   });
 
   room.round = nextRound;
@@ -266,6 +268,7 @@ io.on('connection', (socket) => {
         role: null,
         cards: [],
         secretHand: null,
+        initialHand: null,
         isBot: false,
         successDeclared: 0,
         bombDeclared: 0
@@ -344,6 +347,7 @@ io.on('connection', (socket) => {
       role: null,
       cards: [],
       secretHand: null,
+      initialHand: null,
       isBot: false,
       successDeclared: 0,
       bombDeclared: 0
@@ -381,12 +385,64 @@ io.on('connection', (socket) => {
       role: null,
       cards: [],
       secretHand: null,
+      initialHand: null,
       isBot: true,
       successDeclared: 0,
       bombDeclared: 0
     });
 
     addLog(room, 'system', `${botName} (AI 機器人) 已加入房間。`);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Kick Player (called by Host in waiting room lobby)
+  socket.on('kickPlayer', ({ targetId }) => {
+    let room = null;
+    for (const r of rooms.values()) {
+      if (r.players.some(p => p.id === socket.id)) {
+        room = r;
+        break;
+      }
+    }
+
+    if (!room) {
+      socket.emit('errorMsg', '房間未找到。');
+      return;
+    }
+
+    if (room.gameStarted) {
+      socket.emit('errorMsg', '遊戲已經開始，無法剔除成員。');
+      return;
+    }
+
+    const hostPlayer = room.players.find(p => p.id === socket.id);
+    if (!hostPlayer || !hostPlayer.host) {
+      socket.emit('errorMsg', '只有房主才能剔除成員。');
+      return;
+    }
+
+    const targetIdx = room.players.findIndex(p => p.id === targetId);
+    if (targetIdx === -1) {
+      socket.emit('errorMsg', '未找到該成員。');
+      return;
+    }
+
+    const targetPlayer = room.players[targetIdx];
+    if (targetPlayer.id === socket.id) {
+      socket.emit('errorMsg', '房主不能剔除自己。');
+      return;
+    }
+
+    // Remove from player list
+    room.players.splice(targetIdx, 1);
+
+    if (targetPlayer.isBot) {
+      addLog(room, 'system', `${targetPlayer.name} (AI 機器人) 已被房主剔除出房間。`);
+    } else {
+      addLog(room, 'system', `${targetPlayer.name} 已被房主剔除出房間。`);
+      io.to(targetPlayer.id).emit('kicked');
+    }
+
     broadcastRoomUpdate(room);
   });
 
@@ -451,6 +507,7 @@ io.on('connection', (socket) => {
         hand.push(room.deck.pop());
       }
       p.secretHand = hand;
+      p.initialHand = [...hand];
       p.cards = [];
     });
 
@@ -769,6 +826,7 @@ io.on('connection', (socket) => {
       p.role = null;
       p.cards = [];
       p.secretHand = null;
+      p.initialHand = null;
       p.successDeclared = 0;
       p.bombDeclared = 0;
     });
