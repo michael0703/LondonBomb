@@ -836,7 +836,7 @@ input[type="text"]:focus {
     height: 100%;
     position: relative;
     transform-style: preserve-3d;
-    transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 .wire-card.flipped .wire-card-inner {
@@ -1509,17 +1509,17 @@ input[type="text"]:focus {
 }
 
 .wire-card.just-cut.flipped .wire-card-front.success {
-    animation: highlightSuccess 3s ease-in-out;
+    animation: highlightSuccess 1.2s ease-in-out;
     box-shadow: 0 0 25px var(--color-good-blue);
 }
 
 .wire-card.just-cut.flipped .wire-card-front.bomb {
-    animation: highlightBomb 3s ease-in-out;
+    animation: highlightBomb 1.2s ease-in-out;
     box-shadow: 0 0 30px var(--color-bad-red);
 }
 
 .wire-card.just-cut.flipped .wire-card-front.safe {
-    animation: highlightSafe 3s ease-in-out;
+    animation: highlightSafe 1.0s ease-in-out;
     box-shadow: 0 0 20px #8b5a2b;
 }
 

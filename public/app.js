@@ -7,6 +7,8 @@ let currentRoomCode = null;
 let currentName = null;
 let isHost = false;
 let myId = null;
+let isFirstUpdate = true;
+let latestState = null;
 
 // SOUND SYNTHESIS ENGINE (Web Audio API)
 const AudioSynth = {
@@ -181,7 +183,9 @@ const buttons = {
     revealRole: document.getElementById('btn-reveal-role'),
     viewBoard: document.getElementById('btn-view-board'),
     showSummary: document.getElementById('btn-show-summary'),
-    exitLobby: document.getElementById('btn-exit-lobby')
+    exitLobby: document.getElementById('btn-exit-lobby'),
+    openHistory: document.getElementById('btn-open-history'),
+    closeHistory: document.getElementById('btn-close-history')
 };
 
 const displays = {
@@ -211,7 +215,9 @@ const displays = {
     gameOverSubtitle: document.getElementById('game-over-subtitle'),
     finalRolesList: document.getElementById('final-roles-list'),
     explosionFlash: document.getElementById('explosion-flash'),
-    errorToast: document.getElementById('error-toast')
+    errorToast: document.getElementById('error-toast'),
+    historyModal: document.getElementById('history-modal'),
+    historyList: document.getElementById('history-list')
 };
 
 // INITIALIZATION
@@ -231,6 +237,8 @@ function setupEventListeners() {
     buttons.viewBoard.addEventListener('click', onViewBoard);
     buttons.showSummary.addEventListener('click', onShowSummary);
     buttons.exitLobby.addEventListener('click', onExitLobby);
+    buttons.openHistory.addEventListener('click', onOpenHistory);
+    buttons.closeHistory.addEventListener('click', onCloseHistory);
     
     // Inputs (Enter key triggers)
     inputs.roomCode.addEventListener('keypress', (e) => {
@@ -329,6 +337,49 @@ function onShowSummary() {
     buttons.showSummary.style.display = 'none';
 }
 
+function onOpenHistory() {
+    AudioSynth.playTick();
+    displays.historyList.innerHTML = '';
+    
+    if (latestState && latestState.history && latestState.history.length > 0) {
+        const cutLogs = latestState.history.filter(h => h.type === 'cut' || h.text.includes('輪開始') || h.text.includes('獲勝'));
+        if (cutLogs.length === 0) {
+            displays.historyList.innerHTML = `<div style="text-align:center; color:rgba(245,238,220,0.4); padding:20px 0;">尚無剪線紀錄</div>`;
+        } else {
+            cutLogs.forEach(h => {
+                const item = document.createElement('div');
+                item.style.marginBottom = '8px';
+                item.style.borderBottom = '1px dashed rgba(212,175,55,0.15)';
+                item.style.paddingBottom = '4px';
+                
+                let color = 'var(--color-text-light)';
+                if (h.text.includes('✅')) {
+                    color = 'var(--color-good-blue)';
+                } else if (h.text.includes('❌')) {
+                    color = 'var(--color-safe-brown)';
+                } else if (h.text.includes('💥') || h.text.includes('獲勝')) {
+                    color = 'var(--color-bad-red)';
+                } else if (h.text.includes('輪開始')) {
+                    color = 'var(--color-brass)';
+                    item.style.fontWeight = 'bold';
+                }
+                
+                item.innerHTML = `<span style="color:${color};">${escapeHTML(h.text)}</span>`;
+                displays.historyList.appendChild(item);
+            });
+        }
+    } else {
+        displays.historyList.innerHTML = `<div style="text-align:center; color:rgba(245,238,220,0.4); padding:20px 0;">尚無紀錄</div>`;
+    }
+    
+    displays.historyModal.classList.add('active');
+}
+
+function onCloseHistory() {
+    AudioSynth.playTick();
+    displays.historyModal.classList.remove('active');
+}
+
 // ROLE CARD TOGGLE
 function showRoleCard() {
     displays.roleCardFront.classList.remove('hidden');
@@ -378,9 +429,11 @@ socket.on('roomCreated', (code) => {
 let previousCutsCount = 0;
 let previousSuccessCablesCount = 0;
 let previousGameEnded = false;
+let previousSummaryRevealed = false;
 let activeRoleModalRevealed = false; // Tracks if the stamp animation has run in this round
 
 socket.on('roomUpdate', (state) => {
+    latestState = state;
     console.log('Room state updated:', state);
     
     // Update local variables
@@ -398,6 +451,11 @@ socket.on('roomUpdate', (state) => {
         switchView('waiting');
         renderWaitingRoom(state);
         activeRoleModalRevealed = false; // Reset role animation lock
+        
+        // Explicitly clear game-over modal state on return to lobby
+        displays.gameOverModal.classList.remove('active');
+        displays.gameOverModal.classList.remove('minimized');
+        buttons.showSummary.style.display = 'none';
     } else {
         switchView('game');
         
@@ -510,6 +568,12 @@ window.startNextRound = function() {
     socket.emit('startNextRound');
 };
 
+// Global reveal summary trigger (Host only)
+window.revealSummary = function() {
+    AudioSynth.playTick();
+    socket.emit('revealSummary');
+};
+
 // RENDER: GAME
 function renderGameBoard(state, me) {
     // 1. Dashboard Wires Progress bars
@@ -587,6 +651,22 @@ function renderGameBoard(state, me) {
         }
         banner.style.borderColor = 'var(--color-bad-red)';
         banner.style.background = 'rgba(238, 76, 64, 0.08)';
+    }
+
+    if (state.gameEnded) {
+        if (!state.summaryRevealed) {
+            if (me && me.host) {
+                banner.innerHTML = `【 遊戲結束 】 任務已達成終局！請確認桌面最後翻牌結果。 <button class="btn btn-gold" style="padding: 4px 12px; font-size: 0.8rem; margin-left: 15px;" onclick="revealSummary()">揭曉最終結算報告</button>`;
+            } else {
+                banner.textContent = '【 遊戲結束 】 任務已達成終局！請確認桌面最後翻牌結果。等待房主點擊揭曉結算...';
+            }
+            banner.style.borderColor = 'var(--color-brass)';
+            banner.style.background = 'rgba(212, 175, 55, 0.08)';
+        } else {
+            banner.textContent = '【 任務結算 】 最終任務報告已揭曉。';
+            banner.style.borderColor = 'var(--color-bronze)';
+            banner.style.background = 'rgba(184, 115, 51, 0.08)';
+        }
     }
 
     // 4. Render players cards board ring
@@ -704,12 +784,16 @@ function renderGameBoard(state, me) {
         } else {
             decDiv.className = 'pg-declaration';
             let readyBadge = '';
+            let valDisplay = '';
             if (state.roundPhase === 'declaring') {
                 readyBadge = p.readyToDeclare ? ' <span style="color:#4cd964;font-size:0.7rem;">(已確認)</span>' : ' <span style="color:var(--color-copper);font-size:0.7rem;">(宣告中...)</span>';
+                valDisplay = '❓'; // Hide value during declaring phase
+            } else {
+                valDisplay = `✅ ${p.successDeclared || 0}`; // Reveal when phase is cutting or later
             }
             decDiv.innerHTML = `
                 <span class="dec-label">宣告：</span>
-                <span class="dec-val">✅ ${p.successDeclared || 0}</span>
+                <span class="dec-val">${valDisplay}</span>
                 ${readyBadge}
             `;
         }
@@ -751,7 +835,7 @@ function renderGameBoard(state, me) {
     }
 
     // 6. Game Over displays
-    if (state.gameEnded) {
+    if (state.gameEnded && state.summaryRevealed) {
         if (!displays.gameOverModal.classList.contains('minimized')) {
             displays.gameOverModal.classList.add('active');
         }
@@ -783,28 +867,32 @@ function renderGameBoard(state, me) {
 
         if (isHost) {
             buttons.restart.style.display = 'block';
-            buttons.restart.querySelector('span').textContent = '開始新的任務';
+            buttons.restart.querySelector('span').textContent = '再玩一局';
         } else {
             buttons.restart.style.display = 'none';
-        }
-
-        if (!previousGameEnded) {
-            if (state.winnerTeam === 'Sherlock') {
-                AudioSynth.playVictoryFanfare();
-            } else {
-                AudioSynth.playExplosion();
-                displays.explosionFlash.classList.add('explosion-trigger');
-                setTimeout(() => {
-                    displays.explosionFlash.classList.remove('explosion-trigger');
-                }, 1000);
-            }
         }
     } else {
         displays.gameOverModal.classList.remove('active');
         displays.gameOverModal.classList.remove('minimized');
         buttons.showSummary.style.display = 'none';
     }
+
+    // Play immediate sound cues and flash on game end transition
+    if (state.gameEnded && !previousGameEnded) {
+        if (state.winnerTeam === 'Sherlock') {
+            AudioSynth.playVictoryFanfare();
+        } else {
+            AudioSynth.playExplosion();
+            displays.explosionFlash.classList.add('explosion-trigger');
+            setTimeout(() => {
+                displays.explosionFlash.classList.remove('explosion-trigger');
+            }, 1000);
+        }
+    }
+
     previousGameEnded = state.gameEnded;
+    previousSummaryRevealed = state.summaryRevealed;
+    isFirstUpdate = false;
 
     // 7. Action ticker updates
     renderFeeds(state);
@@ -817,7 +905,7 @@ function renderFeeds(state) {
         const actions = state.history.filter(h => h.type === 'system' || h.type === 'cut');
         if (actions.length > 0) {
             const latestAction = actions[actions.length - 1];
-            tickerText.textContent = `[${latestAction.time}] ${latestAction.text}`;
+            tickerText.textContent = latestAction.text;
         }
     }
 }

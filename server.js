@@ -112,6 +112,7 @@ function getSanitizedRoomState(room, socketId) {
     players: sanitizedPlayers,
     gameStarted: room.gameStarted,
     gameEnded: room.gameEnded,
+    summaryRevealed: room.summaryRevealed || false,
     winnerTeam: room.winnerTeam,
     round: room.round,
     roundPhase: room.roundPhase || 'deploying',
@@ -418,6 +419,7 @@ io.on('connection', (socket) => {
 
     room.gameStarted = true;
     room.gameEnded = false;
+    room.summaryRevealed = false;
     room.winnerTeam = null;
     room.round = 1;
     room.roundPhase = 'deploying';
@@ -631,6 +633,7 @@ io.on('connection', (socket) => {
       room.successCablesCut++;
       if (room.successCablesCut === room.successCablesTotal) {
         room.gameEnded = true;
+        room.summaryRevealed = false;
         room.winnerTeam = 'Sherlock';
         if (room.declarationIntervalId) {
           clearInterval(room.declarationIntervalId);
@@ -643,6 +646,7 @@ io.on('connection', (socket) => {
     } else if (card.type === 'bomb') {
       room.boobyTrapCut = true;
       room.gameEnded = true;
+      room.summaryRevealed = false;
       room.winnerTeam = 'Moriarty';
       if (room.declarationIntervalId) {
         clearInterval(room.declarationIntervalId);
@@ -658,6 +662,7 @@ io.on('connection', (socket) => {
     if (room.cutsRemaining === 0) {
       if (room.round >= 4) {
         room.gameEnded = true;
+        room.summaryRevealed = false;
         room.winnerTeam = 'Moriarty';
         if (room.declarationIntervalId) {
           clearInterval(room.declarationIntervalId);
@@ -698,6 +703,29 @@ io.on('connection', (socket) => {
     proceedToNextRound(room);
   });
 
+  // Event: Reveal Game Summary (called by Host to pop up modal for everyone)
+  socket.on('revealSummary', () => {
+    let room = null;
+    for (const r of rooms.values()) {
+      if (r.players.some(p => p.id === socket.id)) {
+        room = r;
+        break;
+      }
+    }
+
+    if (!room || !room.gameEnded || room.summaryRevealed) return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.host) {
+      socket.emit('errorMsg', '只有房主才能點擊顯示結算報告。');
+      return;
+    }
+
+    room.summaryRevealed = true;
+    addLog(room, 'system', '房主揭曉了最終任務結算報告。');
+    broadcastRoomUpdate(room);
+  });
+
   // Event: Restart Game (called by Host to return to waiting room)
   socket.on('restartGame', () => {
     let room = null;
@@ -716,6 +744,7 @@ io.on('connection', (socket) => {
     // Reset room state
     room.gameStarted = false;
     room.gameEnded = false;
+    room.summaryRevealed = false;
     room.winnerTeam = null;
     room.round = 1;
     room.roundPhase = 'deploying';
