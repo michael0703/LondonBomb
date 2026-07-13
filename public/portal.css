@@ -1,0 +1,438 @@
+/* Steampunk Boardgame Portal CSS stylesheet */
+
+:root {
+    --color-brass: #cd7f32;
+    --color-brass-glow: rgba(205, 127, 50, 0.4);
+    --color-gold: #d4af37;
+    --color-gold-glow: rgba(212, 175, 55, 0.4);
+    --color-bronze: #8b5a2b;
+    --color-bronze-glow: rgba(139, 90, 43, 0.4);
+    --color-copper: #b87333;
+    --color-copper-glow: rgba(184, 115, 51, 0.4);
+    
+    --color-text-light: #f5eedc;
+    --color-text-dark: #1e130b;
+    
+    --font-heading: 'Outfit', 'Noto Sans TC', sans-serif;
+    --font-heading-decor: 'Cinzel Decorative', 'Noto Sans TC', serif;
+    --font-body: 'Outfit', 'Noto Sans TC', sans-serif;
+    --font-mono: 'Courier New', Courier, monospace;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: radial-gradient(circle at center, #1b130e 0%, #0b0705 100%);
+    color: var(--color-text-light);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+/* Steam particles canvas */
+#steam-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.15;
+}
+
+.portal-container {
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+    z-index: 1;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    padding: 40px 20px;
+}
+
+/* PORTAL HEADER */
+.portal-header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+.header-gears {
+    position: relative;
+    height: 90px;
+    width: 150px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.gear {
+    position: absolute;
+    color: var(--color-bronze);
+    opacity: 0.55;
+    user-select: none;
+    line-height: 1;
+}
+
+.gear-large {
+    font-size: 5rem;
+    animation: spinClockwise 25s linear infinite;
+    z-index: 1;
+}
+
+.gear-medium {
+    font-size: 3.5rem;
+    transform: translate(42px, -30px);
+    animation: spinCounterClockwise 18s linear infinite;
+    color: var(--color-brass);
+    z-index: 2;
+}
+
+.gear-small {
+    font-size: 2.2rem;
+    transform: translate(-38px, 20px);
+    animation: spinCounterClockwise 12s linear infinite;
+    color: var(--color-copper);
+    z-index: 2;
+}
+
+@keyframes spinClockwise {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes spinCounterClockwise {
+    0% { transform: rotate(360deg); }
+    100% { transform: rotate(0deg); }
+}
+
+.portal-title {
+    font-family: var(--font-heading-decor);
+    font-size: 2.8rem;
+    color: var(--color-gold);
+    text-shadow: 
+        0 0 10px var(--color-gold-glow),
+        3px 3px 0px rgba(0,0,0,0.8),
+        5px 5px 0px var(--color-bronze);
+    letter-spacing: 4px;
+    margin-bottom: 10px;
+    font-weight: 700;
+}
+
+.portal-subtitle {
+    font-size: 0.95rem;
+    color: rgba(245, 238, 220, 0.6);
+    letter-spacing: 2px;
+    font-family: var(--font-heading);
+    text-transform: uppercase;
+}
+
+.header-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    width: 100%;
+    max-width: 400px;
+    margin-top: 15px;
+}
+
+.divider-line {
+    flex: 1;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--color-bronze) 50%, transparent);
+}
+
+.divider-gem {
+    width: 8px;
+    height: 8px;
+    background: var(--color-gold);
+    transform: rotate(45deg);
+    box-shadow: 0 0 8px var(--color-gold-glow);
+}
+
+/* GAMES GRID */
+.games-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 30px;
+    width: 100%;
+    perspective: 1000px;
+}
+
+/* GAME CARD */
+.game-card {
+    background: radial-gradient(circle at center, #261e17 0%, #15110e 100%);
+    border: 3px double var(--color-bronze);
+    border-radius: 12px;
+    padding: 30px 25px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    box-shadow: 
+        0 10px 20px rgba(0,0,0,0.6),
+        inset 0 0 15px rgba(0,0,0,0.8);
+    overflow: hidden;
+}
+
+.game-card::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    right: 4px;
+    bottom: 4px;
+    border: 1px dashed rgba(212, 175, 55, 0.15);
+    border-radius: 8px;
+    pointer-events: none;
+}
+
+.card-border {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    border: 1px solid rgba(212,175,55,0.05);
+    border-radius: 12px;
+}
+
+.card-status {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--color-bronze);
+    font-family: var(--font-mono);
+}
+
+.status-active {
+    color: #4cd964;
+    border-color: rgba(76, 217, 100, 0.3);
+}
+
+.status-locked {
+    color: rgba(245,238,220,0.4);
+    border-color: rgba(139, 90, 43, 0.2);
+}
+
+.card-badge {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: linear-gradient(135deg, var(--color-copper) 0%, #8b0000 100%);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 800;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1.5px solid var(--color-bad-red, #ff3b30);
+    box-shadow: 0 0 8px rgba(255, 59, 48, 0.3);
+}
+
+.card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-top: 20px;
+    flex: 1;
+}
+
+.card-icon {
+    font-size: 3.5rem;
+    margin-bottom: 15px;
+    filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
+    transition: transform 0.3s ease;
+}
+
+.card-title {
+    font-family: var(--font-heading-decor);
+    font-size: 1.6rem;
+    color: var(--color-brass);
+    margin-bottom: 5px;
+}
+
+.card-subtitle {
+    font-size: 0.75rem;
+    color: rgba(245, 238, 220, 0.4);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 15px;
+    font-family: var(--font-mono);
+}
+
+.card-desc {
+    font-size: 0.85rem;
+    color: rgba(245, 238, 220, 0.75);
+    line-height: 1.6;
+    margin-bottom: 25px;
+}
+
+.card-footer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    margin-top: auto;
+}
+
+.player-count-badge {
+    font-size: 0.75rem;
+    color: rgba(245,238,220,0.5);
+    background: rgba(0,0,0,0.3);
+    padding: 3px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(139, 90, 43, 0.2);
+}
+
+/* Steampunk Button styles */
+.btn {
+    border-radius: 4px;
+    padding: 10px 24px;
+    font-family: var(--font-heading);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    cursor: pointer;
+    position: relative;
+    border: none;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.4);
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    width: 100%;
+}
+
+.btn::before {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    right: 1px;
+    bottom: 1px;
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+    pointer-events: none;
+}
+
+.btn-gold {
+    background: linear-gradient(180deg, #ffd700 0%, #b8860b 100%);
+    border: 1.5px solid var(--color-gold);
+    color: var(--color-text-dark);
+    text-shadow: 0 1px 0 rgba(255,255,255,0.4);
+    box-shadow: 
+        0 4px 10px rgba(0,0,0,0.5),
+        0 0 10px var(--color-gold-glow);
+}
+
+.btn-gold:hover:not(.disabled) {
+    transform: translateY(-2px);
+    box-shadow: 
+        0 6px 15px rgba(0,0,0,0.6),
+        0 0 20px rgba(255, 215, 0, 0.6);
+}
+
+.btn-gold:active:not(.disabled) {
+    transform: translateY(1px);
+}
+
+.btn-brass {
+    background: linear-gradient(180deg, #cd7f32 0%, #8b5a2b 100%);
+    border: 1.5px solid var(--color-brass);
+    color: var(--color-text-light);
+    box-shadow: 
+        0 4px 10px rgba(0,0,0,0.5),
+        0 0 5px var(--color-brass-glow);
+}
+
+.btn-brass:hover:not(.disabled) {
+    transform: translateY(-2px);
+    box-shadow: 
+        0 6px 15px rgba(0,0,0,0.6),
+        0 0 15px var(--color-brass-glow);
+}
+
+.btn-brass.disabled, .btn-brass:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none !important;
+}
+
+/* Card hover and interactive actions */
+.active-game {
+    cursor: pointer;
+}
+
+.active-game:hover {
+    transform: translateY(-8px) scale(1.02);
+    border-color: var(--color-gold);
+    box-shadow: 
+        0 15px 35px rgba(0,0,0,0.8),
+        0 0 25px var(--color-gold-glow);
+}
+
+.active-game:hover .card-icon {
+    transform: scale(1.15) rotate(5deg);
+}
+
+.locked-game {
+    opacity: 0.55;
+    filter: grayscale(80%);
+}
+
+.locked-game:hover {
+    filter: grayscale(40%);
+    opacity: 0.7;
+}
+
+/* PORTAL FOOTER */
+.portal-footer-info {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.portal-footer-info p {
+    font-size: 0.72rem;
+    color: rgba(245,238,220,0.3);
+    font-family: var(--font-mono);
+    letter-spacing: 1px;
+}
+
+/* RESPONSIVE LAYOUT */
+@media (max-width: 600px) {
+    .portal-title {
+        font-size: 2rem;
+    }
+    
+    .games-grid {
+        grid-template-columns: 1fr;
+    }
+}
