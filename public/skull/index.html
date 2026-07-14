@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>骷髏牌 | 桌遊入口</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- NICKNAME & LOBBY LOGIN VIEW -->
+        <div id="login-view" class="view-panel active">
+            <div class="steampunk-border"></div>
+            <div class="gears-decor">
+                <div class="gear g-1">⚙️</div>
+                <div class="gear g-2">⚙️</div>
+            </div>
+            
+            <h1 class="logo-text">💀 骷髏牌 💀</h1>
+            <p class="logo-subtext">吹牛與心理戰的維多利亞對決</p>
+
+            <div class="input-group">
+                <label for="input-nickname">輸入你的探員暱稱</label>
+                <input type="text" id="input-nickname" placeholder="例如：夏洛克..." maxlength="10">
+            </div>
+
+            <div class="input-group">
+                <label for="input-room-code">房號 (加入已有房間)</label>
+                <input type="text" id="input-room-code" placeholder="例如：ABCD..." maxlength="4" style="text-transform: uppercase;">
+            </div>
+
+            <div class="button-row">
+                <button id="btn-create-room" class="btn btn-gold">
+                    <span>創建新工坊</span>
+                </button>
+                <button id="btn-join-room" class="btn btn-brass">
+                    <span>加入已有工坊</span>
+                </button>
+            </div>
+            
+            <button onclick="window.location.href='/'" class="btn btn-brass" style="margin-top: 15px; width: 100%; max-width: 320px;">
+                <span>⬅️ 返回桌遊入口</span>
+            </button>
+        </div>
+
+        <!-- WAITING LOBBY VIEW -->
+        <div id="waiting-view" class="view-panel">
+            <div class="steampunk-border"></div>
+            <div class="lobby-header">
+                <div class="room-indicator">
+                    <span class="label">當前房號</span>
+                    <span id="display-room-code" class="value">----</span>
+                </div>
+                <button onclick="window.location.href='/'" class="btn btn-brass" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">
+                    <span>🚪 離開大廳</span>
+                </button>
+            </div>
+
+            <h2 class="lobby-title">⚙️ 探員候戰室 ⚙️</h2>
+
+            <div class="lobby-columns">
+                <!-- Players list -->
+                <div class="lobby-section players-section">
+                    <h3>👥 在線探員 (<span id="player-count">0</span>/8)</h3>
+                    <ul id="lobby-players-list">
+                        <!-- Filled by JS -->
+                    </ul>
+                </div>
+
+                <!-- Rules summary -->
+                <div class="lobby-section rules-section">
+                    <h3>📋 骷髏牌配置與目標</h3>
+                    <ul>
+                        <li>每個探員初始手牌：🌸 鮮花牌 3 張，💀 骷髏牌 1 張。</li>
+                        <li><strong>勝利目標:</strong> 成功完成 2 次挑戰，或存活到最後。</li>
+                        <li><strong>出牌階段:</strong> 至少輪流出一張牌。手牌出完或不想出牌時可「發起挑戰」。</li>
+                        <li><strong>競標階段:</strong> 喊出你可以安全翻開的牌數。可加價或 Pass。</li>
+                        <li><strong>翻牌階段:</strong> 挑戰者必須先翻完自己所有的牌，再自上而下翻別人的牌。只要翻出骷髏即宣告失敗，永久失去 1 張隨機卡牌。</li>
+                    </ul>
+                    <div class="host-controls">
+                        <p id="lobby-status-msg" class="status-msg">等待其他探員加入...</p>
+                        <button id="btn-add-bot" class="btn btn-brass" style="margin-bottom: 12px; display: none; width: 100%;">
+                            <span>新增 AI 機器人</span>
+                        </button>
+                        <button id="btn-start-game" class="btn btn-gold btn-large disabled" disabled>
+                            <span>開始部署任務</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GAME PLAY VIEW -->
+        <div id="game-view" class="view-panel">
+            <!-- Game Top Dashboard -->
+            <div class="game-dashboard">
+                <div class="dash-item game-status-dash">
+                    <div class="dash-label">回合階段</div>
+                    <div id="display-phase" class="dash-value">準備中</div>
+                </div>
+                <div class="dash-item active-player-dash">
+                    <div class="dash-label">當前行動者</div>
+                    <div id="display-active-player" class="dash-value">-</div>
+                </div>
+                <div class="dash-item bid-status-dash">
+                    <div class="dash-label">目前最高競標</div>
+                    <div id="display-highest-bid" class="dash-value">無</div>
+                </div>
+                <div class="dash-item round-info-dash">
+                    <div class="dash-label">當前輪次</div>
+                    <div id="display-round-num" class="dash-value">第 1 輪</div>
+                </div>
+                <div class="dash-item exit-dash">
+                    <button onclick="window.location.href='/'" class="btn btn-brass" style="padding: 6px 12px; font-size: 0.8rem; height: 42px; width: 100px;">
+                        <span>🚪 離開</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Ticker Banner Message -->
+            <div id="ticker-banner">
+                <span id="ticker-text">請點擊「宣告就緒」開始新一輪的對局。</span>
+            </div>
+
+            <!-- Main Play Area: Game Table Grid -->
+            <div id="game-table" class="table-grid">
+                <div id="table-center-dial" class="table-center-dial">
+                    <div id="center-phase" class="center-phase-text">準備中</div>
+                    <div id="center-bid-circle" class="center-bid-circle">
+                        <div class="center-bid-label">最高競標</div>
+                        <div id="center-bid-val">0</div>
+                    </div>
+                    <div id="center-active-name" class="center-active-text">-</div>
+                </div>
+                <!-- Dynamic Player Boxes Rendered by JS -->
+            </div>
+
+            <!-- Bottom Control Panel -->
+            <div class="bottom-controls">
+                <!-- Persistent My Card Pool Tracker -->
+                <div class="card-pool-tracker" id="my-card-pool-container" style="display: none;">
+                    <span class="tracker-label">我的存活卡牌池：</span>
+                    <div id="my-card-pool-icons" class="pool-icons">
+                        <!-- 🌸 🌸 🌸 💀 -->
+                    </div>
+                </div>
+
+                <!-- Deploy / Ready Control Panel -->
+                <div id="panel-deploy" class="control-sub-panel active">
+                    <button id="btn-confirm-ready" class="btn btn-gold">
+                        <span>宣告就緒</span>
+                    </button>
+                </div>
+
+                <!-- Placing Phase Panel -->
+                <div id="panel-placing" class="control-sub-panel">
+                    <div class="control-hint">你的回合：選擇一張手牌出在個人牌堆，或發起競標挑戰！</div>
+                    <div class="hand-row" id="placing-hand">
+                        <!-- Hand cards rendered here -->
+                    </div>
+                    <div class="placing-actions">
+                        <button id="btn-start-bid" class="btn btn-gold">
+                            <span>發起挑戰競標</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Bidding Phase Panel -->
+                <div id="panel-bidding" class="control-sub-panel">
+                    <div class="control-hint">競標進行中：加價或宣告放棄 (Pass)</div>
+                    <div class="bid-wheel-controls">
+                        <button id="btn-bid-down" class="btn btn-brass bid-adjust-btn"><span>-</span></button>
+                        <span id="display-my-bid" class="bid-value">1</span>
+                        <button id="btn-bid-up" class="btn btn-brass bid-adjust-btn"><span>+</span></button>
+                        <button id="btn-submit-bid" class="btn btn-gold"><span>加價</span></button>
+                        <button id="btn-pass-bid" class="btn btn-brass"><span>放棄 (Pass)</span></button>
+                    </div>
+                </div>
+
+                <!-- Revealing Phase Panel -->
+                <div id="panel-revealing" class="control-sub-panel">
+                    <div class="control-hint anim-pulse">你是挑戰者！請翻開 <span id="reveal-target-count" class="text-gold">0</span> 張牌。翻牌規則：必須從右到左（最晚出的牌最先翻開）。先翻自己，再翻別人。</div>
+                </div>
+
+                <!-- Spectating Panel -->
+                <div id="panel-spectating" class="control-sub-panel">
+                    <div class="control-hint text-red">你已被淘汰！目前正在旁觀本局遊戲...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DISCARD SELECT MODAL (when self-exploded and must discard a card secretly) -->
+    <div id="discard-modal" class="modal-overlay">
+        <div class="steampunk-modal">
+            <div class="modal-gears">⚙️⚙️</div>
+            <h2 class="modal-title text-red">💀 挑戰自爆！ 💀</h2>
+            <p class="modal-desc">你踩中了自己牌堆的骷髏！請從賸餘手牌中**秘密選擇 1 張**永久丟棄。</p>
+            <div class="hand-row" id="discard-hand-selection">
+                <!-- Player cards to click for discard -->
+            </div>
+        </div>
+    </div>
+
+    <!-- CARD LOST POPUP NOTIFICATION -->
+    <div id="toast-lost-card" class="modal-overlay">
+        <div class="steampunk-modal mini-modal">
+            <h2 class="modal-title text-red" id="lost-card-title">永久失去卡牌</h2>
+            <div class="lost-card-icon" id="lost-card-icon">🌸</div>
+            <p class="modal-desc" id="lost-card-desc">你永久失去了一張鮮花牌！</p>
+            <button id="btn-close-lost-toast" class="btn btn-gold" style="margin-top: 15px;">
+                <span>了解</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- GAME OVER / SUMMARY MODAL -->
+    <div id="game-over-modal" class="modal-overlay">
+        <div class="steampunk-modal">
+            <div class="modal-gears">⚙️⚙️⚙️</div>
+            <h1 id="game-over-title" class="logo-text">🏆 遊戲結束 🏆</h1>
+            <h2 id="game-over-subtitle" class="text-gold">挑戰者獲得最終勝利！</h2>
+            
+            <div id="game-over-content">
+                <ul id="final-scores-list" class="scores-list">
+                    <!-- Final status of players -->
+                </ul>
+            </div>
+            
+            <div class="modal-actions">
+                <button id="btn-restart-game" class="btn btn-gold" style="display: none;">
+                    <span>再玩一局</span>
+                </button>
+                <button id="btn-exit-lobby" class="btn btn-brass">
+                    <span>回到大廳</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ERROR TOAST NOTIFICATION -->
+    <div id="error-toast" class="error-toast">錯誤提示資訊</div>
+
+    <!-- Socket.io & Game Logic script -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

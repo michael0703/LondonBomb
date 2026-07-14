@@ -85,6 +85,55 @@ function selectRoles(playerCount) {
 
 // Helper: Sanitize room state to send to clients (hide secrets!)
 function getSanitizedRoomState(room, socketId) {
+  if (room.gameType === 'skull') {
+    const sanitizedPlayers = room.players.map(p => {
+      const isSelf = p.id === socketId;
+      return {
+        id: p.id,
+        name: p.name,
+        host: p.host,
+        connected: p.connected,
+        isBot: p.isBot || false,
+        score: p.score || 0,
+        passed: p.passed || false,
+        eliminated: p.eliminated || false,
+        readyToDeploy: p.readyToDeploy || false,
+        playedCardsCount: p.playedCards ? p.playedCards.length : 0,
+        playedCards: p.playedCards ? p.playedCards.map(c => ({
+          revealed: c.revealed,
+          type: c.revealed || room.gameEnded || isSelf ? c.type : 'hidden'
+        })) : [],
+        remainingHandSize: p.cards ? p.cards.length : 0
+      };
+    });
+
+    const me = room.players.find(p => p.id === socketId);
+
+    return {
+      roomCode: room.roomCode,
+      gameType: room.gameType,
+      gameStarted: room.gameStarted,
+      gameEnded: room.gameEnded,
+      winnerTeam: room.winnerTeam,
+      round: room.round,
+      roundPhase: room.roundPhase || 'placing',
+      activePlayerId: room.activePlayerId,
+      challengerId: room.challengerId,
+      highestBid: room.highestBid || 0,
+      revealedCardsCount: room.revealedCardsCount || 0,
+      players: sanitizedPlayers,
+      history: room.history,
+      me: me ? {
+        id: me.id,
+        host: me.host || false,
+        cards: me.cards || [],
+        eliminated: me.eliminated || false,
+        readyToDeploy: me.readyToDeploy || false,
+        passed: me.passed || false
+      } : null
+    };
+  }
+
   const sanitizedPlayers = room.players.map(p => {
     const isSelf = p.id === socketId;
     return {
@@ -248,7 +297,7 @@ io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
   // Event: Create Room
-  socket.on('createRoom', ({ name }) => {
+  socket.on('createRoom', ({ name, gameType }) => {
     if (!name || name.trim() === '') {
       socket.emit('errorMsg', '請輸入有效的名字。');
       return;
@@ -257,6 +306,7 @@ io.on('connection', (socket) => {
     const code = generateRoomCode();
     const room = {
       roomCode: code,
+      gameType: gameType || 'timebomb',
       players: [{
         id: socket.id,
         name: name.trim(),
@@ -468,14 +518,50 @@ io.on('connection', (socket) => {
     }
 
     const playerCount = room.players.length;
-    if (playerCount < 4 || playerCount > 8) {
-      socket.emit('errorMsg', '遊戲需要 4 到 8 名玩家/機器人才能開始。');
+    if (room.gameType === 'timebomb') {
+      if (playerCount < 4 || playerCount > 8) {
+        socket.emit('errorMsg', '遊戲需要 4 到 8 名玩家/機器人才能開始。');
+        return;
+      }
+    } else if (room.gameType === 'skull') {
+      if (playerCount < 2 || playerCount > 8) {
+        socket.emit('errorMsg', '遊戲需要 2 到 8 名玩家/機器人才能開始。');
+        return;
+      }
+    }
+
+    if (room.gameType === 'skull') {
+      room.gameStarted = true;
+      room.gameEnded = false;
+      room.winnerTeam = null;
+      room.round = 1;
+      room.roundPhase = 'placing';
+      room.challengerId = null;
+      room.highestBid = 0;
+      room.revealedCardsCount = 0;
+      room.history = [];
+
+      room.players.forEach(p => {
+        p.cards = ['flower', 'flower', 'flower', 'skull'];
+        p.playedCards = [];
+        p.score = 0;
+        p.passed = false;
+        p.eliminated = false;
+        p.readyToDeploy = true;
+      });
+
+      const randomPlayer = room.players[Math.floor(Math.random() * playerCount)];
+      room.activePlayerId = randomPlayer.id;
+
+      addLog(room, 'system', '💀 骷髏牌對局開始！每位探員分發 3張鮮花牌 與 1張骷髏牌。');
+      addLog(room, 'system', `起始玩家為：${randomPlayer.name}。出牌階段開始！`);
+      broadcastRoomUpdate(room);
+      triggerSkullBotAction(room);
       return;
     }
 
     room.gameStarted = true;
     room.gameEnded = false;
-    room.summaryRevealed = false;
     room.winnerTeam = null;
     room.round = 1;
     room.roundPhase = 'deploying';
@@ -829,6 +915,12 @@ io.on('connection', (socket) => {
       p.initialHand = null;
       p.successDeclared = 0;
       p.bombDeclared = 0;
+      
+      // Skull properties reset
+      p.playedCards = [];
+      p.score = 0;
+      p.passed = false;
+      p.eliminated = false;
     });
 
     addLog(room, 'system', '房主重設了對局，返回候戰室。');
@@ -1053,6 +1145,633 @@ function scheduleBotCut(room) {
       broadcastRoomUpdate(room);
     }
   }, 2500 + Math.random() * 1500);
+}
+
+// ==========================================
+// SKULL (骷髏牌) GAME LOGIC EVENT HANDLERS
+// ==========================================
+
+io.on('connection', (socket) => {
+  // Event: Skull Place Card
+  socket.on('skull_placeCard', ({ cardType }) => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'skull') return;
+
+    if (room.roundPhase !== 'placing') {
+      socket.emit('errorMsg', '當前不是出牌階段。');
+      return;
+    }
+
+    if (room.activePlayerId !== socket.id) {
+      socket.emit('errorMsg', '還沒有輪到你的回合。');
+      return;
+    }
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || player.eliminated) return;
+
+    const cardIndex = player.cards.indexOf(cardType);
+    if (cardIndex === -1) {
+      socket.emit('errorMsg', `你的手牌中沒有：${cardType === 'flower' ? '🌸 鮮花牌' : '💀 骷髏牌'}。`);
+      return;
+    }
+
+    // Place card
+    player.cards.splice(cardIndex, 1);
+    player.playedCards.push({ type: cardType, revealed: false });
+    
+    addLog(room, 'system', `${player.name} 秘密放置了一張卡牌到其牌堆。`);
+
+    // Advance turn
+    advanceSkullTurn(room);
+  });
+
+  // Event: Skull Bid (challenge)
+  socket.on('skull_bid', ({ bidAmount }) => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'skull') return;
+
+    if (room.roundPhase !== 'placing' && room.roundPhase !== 'bidding') {
+      socket.emit('errorMsg', '當前不能進行競標。');
+      return;
+    }
+
+    if (room.activePlayerId !== socket.id) {
+      socket.emit('errorMsg', '還沒有輪到你的回合。');
+      return;
+    }
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || player.eliminated || player.passed) return;
+
+    // Check if everyone has placed at least 1 card (required to start bidding)
+    const everyonePlayedOne = room.players.filter(p => !p.eliminated).every(p => p.playedCards.length >= 1);
+    if (!everyonePlayedOne) {
+      socket.emit('errorMsg', '所有探員都必須至少出過 1 張牌，才能發起挑戰競標。');
+      return;
+    }
+
+    // Check bid constraints
+    let totalCardsOnTable = 0;
+    room.players.forEach(p => {
+      totalCardsOnTable += p.playedCards.length;
+    });
+
+    const amount = parseInt(bidAmount);
+    if (isNaN(amount) || amount <= (room.highestBid || 0) || amount > totalCardsOnTable) {
+      socket.emit('errorMsg', `無效的競標數。必須大於 ${room.highestBid || 0} 且小於等於 ${totalCardsOnTable}。`);
+      return;
+    }
+
+    // Switch phase to bidding if was placing
+    if (room.roundPhase === 'placing') {
+      room.roundPhase = 'bidding';
+      // Reset passed flag for all survivors
+      room.players.forEach(p => {
+        p.passed = false;
+      });
+    }
+
+    room.highestBid = amount;
+    room.challengerId = player.id;
+    addLog(room, 'system', `📣 ${player.name} 提升競標，出價：【${amount} 張】！`);
+
+    // Check if bid reached the maximum possible
+    if (amount === totalCardsOnTable) {
+      startSkullRevealing(room);
+    } else {
+      advanceSkullTurn(room);
+    }
+  });
+
+  // Event: Skull Pass Bidding
+  socket.on('skull_pass', () => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'skull') return;
+
+    if (room.roundPhase !== 'bidding') {
+      socket.emit('errorMsg', '目前不是競標階段。');
+      return;
+    }
+
+    if (room.activePlayerId !== socket.id) {
+      socket.emit('errorMsg', '還沒有輪到你的回合。');
+      return;
+    }
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || player.eliminated || player.passed) return;
+
+    player.passed = true;
+    addLog(room, 'system', `💨 ${player.name} 選擇了放棄本輪競標。`);
+
+    // Check how many players have not passed
+    const activeBidders = room.players.filter(p => !p.eliminated && !p.passed);
+    if (activeBidders.length === 1) {
+      room.challengerId = activeBidders[0].id;
+      startSkullRevealing(room);
+    } else if (activeBidders.length === 0) {
+      startSkullRevealing(room);
+    } else {
+      advanceSkullTurn(room);
+    }
+  });
+
+  // Event: Skull Reveal Card (called by challenger during revealing phase)
+  socket.on('skull_revealCard', ({ targetPlayerId }) => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'skull') return;
+
+    if (room.roundPhase !== 'revealing') {
+      socket.emit('errorMsg', '當前不是翻牌結算階段。');
+      return;
+    }
+
+    // Check if a skull has already been revealed in this room (meaning challenge failure has already been hit and is resolving)
+    const skullAlreadyRevealed = room.players.some(p => p.playedCards.some(c => c.type === 'skull' && c.revealed));
+    if (skullAlreadyRevealed) {
+      socket.emit('errorMsg', '挑戰已失敗，正在處理懲罰中。');
+      return;
+    }
+
+    if (room.challengerId !== socket.id) {
+      socket.emit('errorMsg', '只有挑戰者才能進行翻牌。');
+      return;
+    }
+
+    const challenger = room.players.find(p => p.id === socket.id);
+    const targetPlayer = room.players.find(p => p.id === targetPlayerId);
+    
+    if (!targetPlayer || targetPlayer.eliminated || targetPlayer.playedCards.length === 0) {
+      socket.emit('errorMsg', '無效的翻牌目標。');
+      return;
+    }
+
+    // Reveal order constraint: challenger must reveal all own played cards first
+    const challengerHasUnrevealed = challenger.playedCards.some(c => !c.revealed);
+    if (challengerHasUnrevealed && targetPlayerId !== socket.id) {
+      socket.emit('errorMsg', '你必須先將自己牌堆的所有卡牌全部翻開！');
+      return;
+    }
+
+    // Get the top unrevealed card
+    const cardToReveal = [...targetPlayer.playedCards].reverse().find(c => !c.revealed);
+    if (!cardToReveal) {
+      socket.emit('errorMsg', '該探員牌堆中已無未翻開的卡牌。');
+      return;
+    }
+
+    cardToReveal.revealed = true;
+    room.revealedCardsCount++;
+
+    // Broadcast flip sound
+    io.to(room.roomCode).emit('skull_cardRevealedSound', { cardType: cardToReveal.type });
+
+    addLog(room, 'system', `🔍 ${challenger.name} 翻開了 ${targetPlayer.name} 的一張牌，是：【${cardToReveal.type === 'flower' ? '🌸 鮮花牌' : '💀 骷髏牌'}】。`);
+
+    if (cardToReveal.type === 'skull') {
+      resolveSkullChallengeFailure(room, targetPlayerId);
+    } else {
+      if (room.revealedCardsCount === room.highestBid) {
+        resolveSkullChallengeSuccess(room);
+      } else {
+        broadcastRoomUpdate(room);
+        triggerSkullBotAction(room);
+      }
+    }
+  });
+
+  // Event: Skull Discard Choice (called by failed challenger after own-skull self-explosion)
+  socket.on('skull_discardChoice', ({ cardIndex }) => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'skull') return;
+
+    const challenger = room.players.find(p => p.id === socket.id);
+    if (!challenger || challenger.id !== room.challengerId || challenger.cards.length === 0) return;
+
+    if (cardIndex < 0 || cardIndex >= challenger.cards.length) return;
+
+    const discardedType = challenger.cards.splice(cardIndex, 1)[0];
+    addLog(room, 'system', `⚙️ ${challenger.name} 秘密選擇丟棄了自己的一張手牌。`);
+    
+    socket.emit('skull_cardLost', { cardType: discardedType, isSelfExplode: true });
+
+    postSkullChallengeCleanup(room, challenger.id, true);
+  });
+
+  // Event: Skull Ready for Next Round
+  socket.on('skull_readyToDeploy', () => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'skull') return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || player.eliminated) return;
+
+    player.readyToDeploy = true;
+    addLog(room, 'system', `🆗 ${player.name} 已宣告就緒。`);
+
+    const everyoneReady = room.players.filter(p => !p.eliminated).every(p => p.readyToDeploy);
+    if (everyoneReady) {
+      room.players.forEach(p => {
+        if (!p.eliminated) {
+          p.playedCards.forEach(c => {
+            p.cards.push(c.type);
+          });
+          p.playedCards = [];
+          shuffle(p.cards);
+        }
+      });
+
+      room.highestBid = 0;
+      room.challengerId = null;
+      room.revealedCardsCount = 0;
+      room.round++;
+      room.roundPhase = 'placing';
+
+      addLog(room, 'system', `--- 🌀 第 ${room.round} 回合開始 🌀 ---`);
+      addLog(room, 'system', `首位出牌探員為：${room.players.find(p => p.id === room.activePlayerId).name}。`);
+    }
+
+    broadcastRoomUpdate(room);
+    triggerSkullBotAction(room);
+  });
+});
+
+// ==========================================
+// SKULL HELPER FUNCTIONS & BOT ACTIONS
+// ==========================================
+
+function getRoomBySocket(socket) {
+  for (const r of rooms.values()) {
+    if (r.players.some(p => p.id === socket.id)) {
+      return r;
+    }
+  }
+  return null;
+}
+
+function getNextSkullActivePlayerId(room, currentId) {
+  const index = room.players.findIndex(p => p.id === currentId);
+  const len = room.players.length;
+  for (let i = 1; i <= len; i++) {
+    const nextP = room.players[(index + i) % len];
+    if (!nextP.eliminated) {
+      return nextP.id;
+    }
+  }
+  return currentId;
+}
+
+function getNextSkullBidderId(room, currentId) {
+  const index = room.players.findIndex(p => p.id === currentId);
+  const len = room.players.length;
+  for (let i = 1; i <= len; i++) {
+    const nextP = room.players[(index + i) % len];
+    if (!nextP.eliminated && !nextP.passed) {
+      return nextP.id;
+    }
+  }
+  return currentId;
+}
+
+function advanceSkullTurn(room) {
+  if (room.roundPhase === 'placing') {
+    room.activePlayerId = getNextSkullActivePlayerId(room, room.activePlayerId);
+  } else if (room.roundPhase === 'bidding') {
+    room.activePlayerId = getNextSkullBidderId(room, room.activePlayerId);
+  }
+  
+  broadcastRoomUpdate(room);
+  triggerSkullBotAction(room);
+}
+
+function startSkullRevealing(room) {
+  room.roundPhase = 'revealing';
+  room.activePlayerId = room.challengerId;
+  room.revealedCardsCount = 0;
+  
+  addLog(room, 'system', `🔎 競標結束！挑戰者【${room.players.find(p => p.id === room.challengerId).name}】必須成功翻開 ${room.highestBid} 張鮮花牌。`);
+  
+  broadcastRoomUpdate(room);
+  triggerSkullBotAction(room);
+}
+
+function resolveSkullChallengeSuccess(room) {
+  const challenger = room.players.find(p => p.id === room.challengerId);
+  challenger.score++;
+  
+  addLog(room, 'system', `🎉 恭喜！${challenger.name} 挑戰成功！目前累計得分：【${challenger.score}/2】。`);
+  
+  if (challenger.score >= 2) {
+    room.gameEnded = true;
+    room.winnerTeam = challenger.id;
+    addLog(room, 'system', `🏆 最終勝利！${challenger.name} 成功完成了 2 次挑戰，贏得了遊戲！`);
+  } else {
+    room.players.forEach(p => {
+      p.readyToDeploy = false;
+    });
+    room.activePlayerId = challenger.id;
+    room.roundPhase = 'revealing_complete';
+    triggerSkullBotsReady(room);
+  }
+  
+  broadcastRoomUpdate(room);
+}
+
+function resolveSkullChallengeFailure(room, skullOwnerId) {
+  const challenger = room.players.find(p => p.id === room.challengerId);
+  const owner = room.players.find(p => p.id === skullOwnerId);
+  
+  if (challenger.id === owner.id) {
+    addLog(room, 'system', `💣 挑戰者踩到了自己放置的骷髏！必須自行秘密選擇丟棄 1 張手牌。`);
+    
+    if (challenger.isBot) {
+      const randomIndex = Math.floor(Math.random() * challenger.cards.length);
+      const discardedType = challenger.cards.splice(randomIndex, 1)[0];
+      addLog(room, 'system', `⚙️ ${challenger.name} (AI 機器人) 秘密選擇丟棄了自己的一張手牌。`);
+      postSkullChallengeCleanup(room, challenger.id, true);
+    } else {
+      const socket = io.sockets.sockets.get(challenger.id);
+      if (socket) {
+        socket.emit('skull_mustDiscardSelf', { remainingCards: challenger.cards });
+      }
+    }
+  } else {
+    const randomIndex = Math.floor(Math.random() * challenger.cards.length);
+    const discardedType = challenger.cards.splice(randomIndex, 1)[0];
+    
+    addLog(room, 'system', `💥 挑戰者踩中了 ${owner.name} 的骷髏！${owner.name} 隨機抽取並丢棄了挑戰者的一張手牌。`);
+    
+    const socket = io.sockets.sockets.get(challenger.id);
+    if (socket) {
+      socket.emit('skull_cardLost', { cardType: discardedType, isSelfExplode: false, byPlayerName: owner.name });
+    }
+    
+    postSkullChallengeCleanup(room, owner.id, false);
+  }
+}
+
+function postSkullChallengeCleanup(room, nextStartingPlayerId, isSelfExplode) {
+  const challenger = room.players.find(p => p.id === room.challengerId);
+  
+  if (challenger.cards.length === 0) {
+    challenger.eliminated = true;
+    addLog(room, 'system', `💀 【${challenger.name}】已失去所有卡牌，不幸被淘汰出局！`);
+    
+    const survivors = room.players.filter(p => !p.eliminated);
+    if (survivors.length === 1) {
+      room.gameEnded = true;
+      room.winnerTeam = survivors[0].id;
+      addLog(room, 'system', `🏆 最後倖存！恭喜 ${survivors[0].name} 成為場上唯一的倖存者，贏得了對局！`);
+      broadcastRoomUpdate(room);
+      return;
+    }
+  }
+
+  room.players.forEach(p => {
+    p.readyToDeploy = false;
+  });
+
+  if (isSelfExplode) {
+    if (!challenger.eliminated) {
+      room.activePlayerId = challenger.id;
+    } else {
+      room.activePlayerId = getNextSkullActivePlayerId(room, challenger.id);
+    }
+  } else {
+    const owner = room.players.find(p => p.id === nextStartingPlayerId);
+    if (owner && !owner.eliminated) {
+      room.activePlayerId = owner.id;
+    } else {
+      room.activePlayerId = getNextSkullActivePlayerId(room, nextStartingPlayerId);
+    }
+  }
+
+  room.roundPhase = 'revealing_complete';
+  triggerSkullBotsReady(room);
+  broadcastRoomUpdate(room);
+}
+
+function triggerSkullBotsReady(room) {
+  room.players.forEach(p => {
+    if (p.isBot && !p.eliminated && !p.readyToDeploy) {
+      setTimeout(() => {
+        if (!room.gameStarted || room.gameEnded || room.gameType !== 'skull') return;
+        
+        p.readyToDeploy = true;
+        addLog(room, 'system', `🆗 ${p.name} (AI 機器人) 已宣告就緒。`);
+        
+        const everyoneReady = room.players.filter(pl => !pl.eliminated).every(pl => pl.readyToDeploy);
+        if (everyoneReady) {
+          room.players.forEach(pl => {
+            if (!pl.eliminated) {
+              pl.playedCards.forEach(c => {
+                pl.cards.push(c.type);
+              });
+              pl.playedCards = [];
+              shuffle(pl.cards);
+            }
+          });
+
+          room.highestBid = 0;
+          room.challengerId = null;
+          room.revealedCardsCount = 0;
+          room.round++;
+          room.roundPhase = 'placing';
+
+          addLog(room, 'system', `--- 🌀 第 ${room.round} 回合開始 🌀 ---`);
+          addLog(room, 'system', `首位出牌探員為：${room.players.find(pl => pl.id === room.activePlayerId).name}。`);
+        }
+        
+        broadcastRoomUpdate(room);
+        triggerSkullBotAction(room);
+      }, 1000 + Math.random() * 1000);
+    }
+  });
+}
+
+function triggerSkullBotAction(room) {
+  if (room.gameEnded) return;
+  
+  const bot = room.players.find(p => p.id === room.activePlayerId);
+  if (!bot || !bot.isBot || bot.eliminated) return;
+
+  setTimeout(() => {
+    const currentBot = room.players.find(p => p.id === room.activePlayerId);
+    if (!currentBot || !currentBot.isBot || currentBot.eliminated || room.gameEnded) return;
+
+    if (room.roundPhase === 'placing') {
+      const everyonePlayedOne = room.players.filter(p => !p.eliminated).every(p => p.playedCards.length >= 1);
+      const noHand = currentBot.cards.length === 0;
+      
+      if (noHand) {
+        botBidHeuristics(room, currentBot);
+      } else if (!everyonePlayedOne) {
+        botPlaceHeuristics(room, currentBot);
+      } else {
+        if (Math.random() < 0.7) {
+          botPlaceHeuristics(room, currentBot);
+        } else {
+          botBidHeuristics(room, currentBot);
+        }
+      }
+    } else if (room.roundPhase === 'bidding') {
+      if (currentBot.passed) return;
+      botBidHeuristics(room, currentBot);
+    } else if (room.roundPhase === 'revealing') {
+      if (room.challengerId === currentBot.id) {
+        botRevealHeuristics(room, currentBot);
+      }
+    }
+  }, 1500 + Math.random() * 1000);
+}
+
+// Bot sub-heuristics: Place card
+function botPlaceHeuristics(room, bot) {
+  const hasSkull = bot.cards.includes('skull');
+  let chosenCard = 'flower';
+  if (hasSkull && Math.random() < 0.3) {
+    chosenCard = 'skull';
+  } else {
+    chosenCard = bot.cards.includes('flower') ? 'flower' : 'skull';
+  }
+
+  const idx = bot.cards.indexOf(chosenCard);
+  bot.cards.splice(idx, 1);
+  bot.playedCards.push({ type: chosenCard, revealed: false });
+  
+  addLog(room, 'system', `${bot.name} (AI 機器人) 秘密放置了一張卡牌到其牌堆。`);
+  advanceSkullTurn(room);
+}
+
+// Bot sub-heuristics: Bid
+function botBidHeuristics(room, bot) {
+  const hasSelfSkull = bot.playedCards.some(c => c.type === 'skull');
+  const currentHighest = room.highestBid || 0;
+  
+  let totalCardsOnTable = 0;
+  room.players.forEach(p => {
+    totalCardsOnTable += p.playedCards.length;
+  });
+
+  const nextBid = currentHighest + 1;
+
+  if (nextBid > totalCardsOnTable) {
+    botPassHeuristics(room, bot);
+    return;
+  }
+
+  if (hasSelfSkull) {
+    if (nextBid < 3 && Math.random() < 0.35) {
+      executeBotBid(room, bot, nextBid);
+    } else {
+      botPassHeuristics(room, bot);
+    }
+  } else {
+    const mySafeCount = bot.playedCards.length;
+    const otherCardsCount = totalCardsOnTable - mySafeCount;
+    const botEstimateLimit = Math.floor(mySafeCount + (otherCardsCount * 0.5));
+    
+    if (nextBid <= botEstimateLimit || (nextBid === 1)) {
+      executeBotBid(room, bot, nextBid);
+    } else {
+      botPassHeuristics(room, bot);
+    }
+  }
+}
+
+function executeBotBid(room, bot, amount) {
+  if (room.roundPhase === 'placing') {
+    room.roundPhase = 'bidding';
+    room.players.forEach(p => {
+      p.passed = false;
+    });
+  }
+
+  room.highestBid = amount;
+  room.challengerId = bot.id;
+  addLog(room, 'system', `📣 ${bot.name} (AI 機器人) 提升競標，出價：【${amount} 張】！`);
+
+  let totalCards = 0;
+  room.players.forEach(p => {
+    totalCards += p.playedCards.length;
+  });
+
+  if (amount === totalCards) {
+    startSkullRevealing(room);
+  } else {
+    advanceSkullTurn(room);
+  }
+}
+
+function botPassHeuristics(room, bot) {
+  if (room.roundPhase === 'placing') {
+    executeBotBid(room, bot, Math.max(1, (room.highestBid || 0) + 1));
+    return;
+  }
+  
+  bot.passed = true;
+  addLog(room, 'system', `💨 ${bot.name} (AI 機器人) 選擇了放棄本輪競標。`);
+
+  const activeBidders = room.players.filter(p => !p.eliminated && !p.passed);
+  if (activeBidders.length === 1) {
+    room.challengerId = activeBidders[0].id;
+    startSkullRevealing(room);
+  } else {
+    advanceSkullTurn(room);
+  }
+}
+
+function botRevealHeuristics(room, bot) {
+  const unrevealedOwn = bot.playedCards.some(c => !c.revealed);
+  if (unrevealedOwn) {
+    revealCardOnServer(room, bot.id);
+    return;
+  }
+
+  const targets = room.players.filter(p => p.id !== bot.id && !p.eliminated && p.playedCards.some(c => !c.revealed));
+  if (targets.length === 0) return;
+
+  const earlyPassers = targets.filter(p => p.passed);
+  let selectedTarget = null;
+  if (earlyPassers.length > 0 && Math.random() < 0.7) {
+    selectedTarget = earlyPassers[Math.floor(Math.random() * earlyPassers.length)];
+  } else {
+    selectedTarget = targets[Math.floor(Math.random() * targets.length)];
+  }
+
+  revealCardOnServer(room, selectedTarget.id);
+}
+
+function revealCardOnServer(room, targetPlayerId) {
+  const challenger = room.players.find(p => p.id === room.challengerId);
+  const targetPlayer = room.players.find(p => p.id === targetPlayerId);
+
+  const cardToReveal = [...targetPlayer.playedCards].reverse().find(c => !c.revealed);
+  if (!cardToReveal) return;
+
+  cardToReveal.revealed = true;
+  room.revealedCardsCount++;
+
+  io.to(room.roomCode).emit('skull_cardRevealedSound', { cardType: cardToReveal.type });
+
+  addLog(room, 'system', `🔍 ${challenger.name} (AI 機器人) 翻開了 ${targetPlayer.name} 的一張牌，是：【${cardToReveal.type === 'flower' ? '🌸 鮮花牌' : '💀 骷髏牌'}】。`);
+
+  if (cardToReveal.type === 'skull') {
+    resolveSkullChallengeFailure(room, targetPlayerId);
+  } else {
+    let totalCards = 0;
+    room.players.forEach(p => {
+      totalCards += p.playedCards.length;
+    });
+
+    if (room.revealedCardsCount === room.highestBid) {
+      resolveSkullChallengeSuccess(room);
+    } else {
+      broadcastRoomUpdate(room);
+      triggerSkullBotAction(room);
+    }
+  }
 }
 
 // Start the server
