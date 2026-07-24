@@ -535,9 +535,9 @@ body {
 .table-grid {
     position: relative;
     width: 100%;
-    height: 480px;
+    height: 560px;
     margin: 15px auto;
-    max-width: 600px;
+    max-width: 720px;
     background: radial-gradient(circle, rgba(42, 31, 24, 0.4) 0%, rgba(21, 17, 14, 0.7) 100%);
     border: 3px double var(--color-bronze);
     border-radius: 50%;
@@ -619,7 +619,7 @@ body {
 /* PLAYER BOX */
 .player-box {
     position: absolute;
-    width: 145px;
+    width: 180px;
     min-height: 140px;
     background: rgba(18, 12, 8, 0.92);
     border: 2px solid var(--color-iron);
@@ -729,7 +729,7 @@ body {
     justify-content: center;
     align-items: center;
     width: 100%;
-    min-height: 50px;
+    min-height: 60px;
     margin: 8px 0;
 }
 
@@ -745,8 +745,8 @@ body {
 /* Rendered cards in stack */
 .stack-card {
     position: relative;
-    width: 28px;
-    height: 38px;
+    width: 36px;
+    height: 48px;
     border-radius: 4px;
     border: 1.5px solid var(--color-bronze);
     background: #2a1f18;
@@ -759,17 +759,52 @@ body {
 
 /* Card flipping visual style */
 .stack-card.revealed-flower {
+    animation: cardFlip 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
     background: radial-gradient(circle, #e9cbb3 0%, #b8860b 100%);
     border-color: var(--color-gold);
     color: var(--color-text-dark);
 }
 
 .stack-card.revealed-skull {
+    animation: cardFlipSkull 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards, shake 0.4s ease-in-out 0.5s;
     background: radial-gradient(circle, #2f0f0f 0%, #000 100%);
     border-color: var(--color-bad-red);
     color: #fff;
     box-shadow: 0 0 8px var(--color-bad-glow);
-    animation: shake 0.4s ease-in-out;
+}
+
+@keyframes cardFlip {
+    0% {
+        transform: scaleX(1) scaleY(1);
+        background: #2a1f18;
+    }
+    45% {
+        transform: scaleX(0) scaleY(1.15);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+    }
+    55% {
+        transform: scaleX(0) scaleY(1.15);
+    }
+    100% {
+        transform: scaleX(1) scaleY(1);
+    }
+}
+
+@keyframes cardFlipSkull {
+    0% {
+        transform: scaleX(1) scaleY(1);
+        background: #2a1f18;
+    }
+    45% {
+        transform: scaleX(0) scaleY(1.15);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+    }
+    55% {
+        transform: scaleX(0) scaleY(1.15);
+    }
+    100% {
+        transform: scaleX(1) scaleY(1) rotate(2deg);
+    }
 }
 
 @keyframes shake {
@@ -779,7 +814,7 @@ body {
 }
 
 .stack-card-inner {
-    font-size: 1.1rem;
+    font-size: 1.4rem;
     line-height: 1;
     pointer-events: none;
 }
@@ -1186,7 +1221,7 @@ body {
 }
 
 .pool-card-icon.played::after {
-    content: '⚙️';
+    content: '❓';
     position: absolute;
     font-size: 0.7rem;
     bottom: -3px;
@@ -1210,4 +1245,31 @@ body {
     transform: translate(-50%, -50%);
     color: var(--color-bad-red);
     font-weight: 800;
+}
+
+/* CHALLENGE RESULT BADGES */
+.result-badge-success, .result-badge-failure {
+    display: inline-block;
+    padding: 6px 15px;
+    border-radius: 20px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    font-family: var(--font-heading);
+    margin: 15px auto;
+    text-align: center;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.result-badge-success {
+    background: rgba(46, 204, 113, 0.15);
+    border: 2px solid var(--color-success-green);
+    color: var(--color-success-green);
+    text-shadow: 0 0 5px var(--color-success-glow);
+}
+
+.result-badge-failure {
+    background: rgba(231, 76, 60, 0.15);
+    border: 2px solid var(--color-bad-red);
+    color: var(--color-bad-red);
+    text-shadow: 0 0 5px var(--color-bad-glow);
 }

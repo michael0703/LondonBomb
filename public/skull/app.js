@@ -174,7 +174,13 @@ const displays = {
     gameOverModal: document.getElementById('game-over-modal'),
     gameOverSubtitle: document.getElementById('game-over-subtitle'),
     finalScoresList: document.getElementById('final-scores-list'),
-    errorToast: document.getElementById('error-toast')
+    errorToast: document.getElementById('error-toast'),
+    
+    // Result Modal
+    resultModal: document.getElementById('result-modal'),
+    resultBadge: document.getElementById('result-badge'),
+    resultDetails: document.getElementById('result-details'),
+    btnResultReady: document.getElementById('btn-result-ready')
 };
 
 // STATE
@@ -233,6 +239,11 @@ function setupEventListeners() {
     });
 
     buttons.confirmReady.addEventListener('click', () => {
+        AudioSynth.playTick();
+        socket.emit('skull_readyToDeploy');
+    });
+
+    displays.btnResultReady.addEventListener('click', () => {
         AudioSynth.playTick();
         socket.emit('skull_readyToDeploy');
     });
@@ -453,7 +464,7 @@ function renderGameBoard(state, me) {
     const ownCardsAllRevealed = mePlayer && (mePlayer.playedCards.filter(c => !c.revealed).length === 0);
     
     const N = orderedPlayers.length;
-    const R_percent = 35; // Radius of circular table (reduced from 38 to prevent overflow)
+    const R_percent = 36; // Radius of circular table
 
     orderedPlayers.forEach((p, idx) => {
         const box = document.createElement('div');
@@ -588,7 +599,7 @@ function renderGameBoard(state, me) {
                     cardEl.style.borderStyle = 'dashed';
                     inner.textContent = '💀';
                 } else {
-                    inner.textContent = '⚙️';
+                    inner.textContent = '❓';
                 }
             }
             
@@ -800,6 +811,51 @@ function renderGameBoard(state, me) {
             const challenger = state.players.find(p => p.id === state.challengerId);
             displays.panelSpectating.querySelector('.control-hint').textContent = `挑戰者 ${challenger ? challenger.name : ''} 正在翻牌結算中...`;
         }
+    }
+    
+    // ----------------------------------------------------
+    // 3.5. CHALLENGE RESULT MODAL
+    // ----------------------------------------------------
+    if (state.roundPhase === 'revealing_complete') {
+        displays.resultModal.classList.add('active');
+        
+        // Find if someone hit a skull (if there is a revealed skull on the board)
+        let skullOwner = null;
+        state.players.forEach(p => {
+            if (p.playedCards.some(c => c.revealed && c.type === 'skull')) {
+                skullOwner = p;
+            }
+        });
+        
+        const challenger = state.players.find(p => p.id === state.challengerId);
+        
+        if (skullOwner) {
+            // Failure!
+            displays.resultBadge.textContent = "🔴 挑戰失敗 (Challenge Failure)";
+            displays.resultBadge.className = "result-badge-failure";
+            
+            if (skullOwner.id === state.challengerId) {
+                displays.resultDetails.innerHTML = `挑戰者 <strong>${challenger ? challenger.name : ''}</strong> 踩中了<strong>自己</strong>放置的骷髏！<br>自爆成功！必須秘密選擇丟棄 1 張手牌。`;
+            } else {
+                displays.resultDetails.innerHTML = `挑戰者 <strong>${challenger ? challenger.name : ''}</strong> 踩中了 <strong>${skullOwner.name}</strong> 的骷髏！<br>永久失去 1 張隨機手牌。`;
+            }
+        } else {
+            // Success!
+            displays.resultBadge.textContent = "🟢 挑戰成功 (Challenge Success)";
+            displays.resultBadge.className = "result-badge-success";
+            displays.resultDetails.innerHTML = `挑戰者 <strong>${challenger ? challenger.name : ''}</strong> 成功出價 <strong>${state.highestBid}</strong> 張，並且順利翻開了 <strong>${state.revealedCardsCount}</strong> 張鮮花牌，未踩中任何骷髏！`;
+        }
+        
+        // Ready button state
+        if (me && me.readyToDeploy) {
+            displays.btnResultReady.classList.add('disabled');
+            displays.btnResultReady.querySelector('span').textContent = '等待其他人準備...';
+        } else {
+            displays.btnResultReady.classList.remove('disabled');
+            displays.btnResultReady.querySelector('span').textContent = '宣告就緒';
+        }
+    } else {
+        displays.resultModal.classList.remove('active');
     }
     
     // ----------------------------------------------------

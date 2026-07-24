@@ -101,7 +101,7 @@ function getSanitizedRoomState(room, socketId) {
         playedCardsCount: p.playedCards ? p.playedCards.length : 0,
         playedCards: p.playedCards ? p.playedCards.map(c => ({
           revealed: c.revealed,
-          type: c.revealed || room.gameEnded || isSelf ? c.type : 'hidden'
+          type: c.revealed || room.gameEnded ? c.type : 'hidden'
         })) : [],
         remainingHandSize: p.cards ? p.cards.length : 0
       };
@@ -576,8 +576,11 @@ io.on('connection', (socket) => {
     room.history = [];
 
     const roles = selectRoles(playerCount);
+    // Double Randomization: shuffle player index mapping to eliminate any seating or join-order bias
+    const randomizedIndices = shuffle(Array.from({ length: playerCount }, (_, i) => i));
     room.players.forEach((p, idx) => {
-      p.role = roles[idx] ? 'Sherlock' : 'Moriarty';
+      const assignedRoleIdx = randomizedIndices[idx];
+      p.role = roles[assignedRoleIdx] ? 'Sherlock' : 'Moriarty';
       p.readyToDeploy = false;
       p.readyToDeclare = false;
       p.roleRevealed = p.isBot ? true : false;
