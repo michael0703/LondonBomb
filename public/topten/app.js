@@ -169,6 +169,7 @@ const displays = {
     // Panels
     panelAnswering: document.getElementById('panel-answering'),
     mySecretNumber: document.getElementById('my-secret-number'),
+    displayMySecretNum: document.getElementById('display-my-secret-num'),
     inputAnswerText: document.getElementById('input-answer-text'),
     btnSubmitAnswer: document.getElementById('btn-submit-answer'),
     
@@ -321,6 +322,13 @@ function renderWaitingRoom(state) {
 function renderGameBoard(state, me) {
     latestState = state;
     const isHost = me && me.host;
+    
+    // Update the secret info bar at the top
+    if (me && me.cardNumber !== null) {
+        displays.displayMySecretNum.textContent = me.cardNumber;
+    } else {
+        displays.displayMySecretNum.textContent = '?';
+    }
     
     // ----------------------------------------------------
     // 1. UPDATE DASHBOARD & TARIFF TEXT
