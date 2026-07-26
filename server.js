@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const TOPTEN_TOPICS = require('./topics.json');
 
 const app = express();
 const server = http.createServer(app);
@@ -130,6 +131,52 @@ function getSanitizedRoomState(room, socketId) {
         eliminated: me.eliminated || false,
         readyToDeploy: me.readyToDeploy || false,
         passed: me.passed || false
+      } : null
+    };
+  }
+
+  if (room.gameType === 'topten') {
+    const sanitizedPlayers = room.players.map(p => {
+      const isSelf = p.id === socketId;
+      return {
+        id: p.id,
+        name: p.name,
+        host: p.host,
+        connected: p.connected,
+        isBot: p.isBot || false,
+        readyToDeploy: p.readyToDeploy || false,
+        answerText: p.answerText || '',
+        hasAnswered: p.hasAnswered || false,
+        isRevealed: p.isRevealed || false,
+        cardNumber: p.isRevealed || room.gameEnded || isSelf ? p.cardNumber : null
+      };
+    });
+
+    const me = room.players.find(p => p.id === socketId);
+
+    return {
+      roomCode: room.roomCode,
+      gameType: room.gameType,
+      gameStarted: room.gameStarted,
+      gameEnded: room.gameEnded,
+      winnerTeam: room.winnerTeam,
+      round: room.round,
+      roundPhase: room.roundPhase || 'lobby',
+      totalRounds: room.totalRounds || 5,
+      currentRound: room.currentRound || 1,
+      lives: room.lives !== undefined ? room.lives : 8,
+      captainIndex: room.captainIndex || 0,
+      currentTopic: room.currentTopic || null,
+      players: sanitizedPlayers,
+      history: room.history,
+      me: me ? {
+        id: me.id,
+        host: me.host || false,
+        cardNumber: me.cardNumber,
+        answerText: me.answerText || '',
+        hasAnswered: me.hasAnswered || false,
+        isRevealed: me.isRevealed || false,
+        readyToDeploy: me.readyToDeploy || false
       } : null
     };
   }
@@ -528,6 +575,11 @@ io.on('connection', (socket) => {
         socket.emit('errorMsg', '遊戲需要 2 到 8 名玩家/機器人才能開始。');
         return;
       }
+    } else if (room.gameType === 'topten') {
+      if (playerCount < 4 || playerCount > 8) {
+        socket.emit('errorMsg', '遊戲需要 4 到 8 名玩家/機器人才能開始。');
+        return;
+      }
     }
 
     if (room.gameType === 'skull') {
@@ -557,6 +609,24 @@ io.on('connection', (socket) => {
       addLog(room, 'system', `起始玩家為：${randomPlayer.name}。出牌階段開始！`);
       broadcastRoomUpdate(room);
       triggerSkullBotAction(room);
+      return;
+    }
+
+    if (room.gameType === 'topten') {
+      room.gameStarted = true;
+      room.gameEnded = false;
+      room.winnerTeam = null;
+      room.round = 1;
+      room.currentRound = 1;
+      room.totalRounds = 5;
+      room.lives = 8;
+      room.captainIndex = 0;
+      room.revealedSequence = [];
+      room.history = [];
+      room.usedTopics = [];
+      room.currentTopic = drawTopTenTopic(room);
+
+      startTopTenRound(room);
       return;
     }
 
@@ -928,6 +998,170 @@ io.on('connection', (socket) => {
 
     addLog(room, 'system', '房主重設了對局，返回候戰室。');
     broadcastRoomUpdate(room);
+  });
+
+  // Event: TopTen Submit Answer
+  socket.on('topten_submitAnswer', ({ answerText }) => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'topten') return;
+
+    if (room.roundPhase !== 'answering') {
+      socket.emit('errorMsg', '目前不是回答階段。');
+      return;
+    }
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || player.hasAnswered) return;
+
+    player.answerText = answerText.trim();
+    player.hasAnswered = true;
+    addLog(room, 'system', `✍️ ${player.name} 已經提交了回答。`);
+
+    const everyoneAnswered = room.players.every(p => p.hasAnswered);
+    if (everyoneAnswered) {
+      room.roundPhase = 'sorting';
+      room.revealedSequence = [];
+      const captain = room.players[room.captainIndex];
+      addLog(room, 'system', `🔊 所有探員都已提交答案！進入【隊長排序階段】。`);
+      addLog(room, 'system', `請隊長【${captain.name}】點擊玩家卡牌，由小到大逐一翻開秘密數字。`);
+    }
+
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: TopTen Reveal Player Card (only Captain can trigger)
+  socket.on('topten_revealPlayer', ({ targetPlayerId }) => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'topten') return;
+
+    if (room.roundPhase !== 'sorting') {
+      socket.emit('errorMsg', '目前不是翻牌排序階段。');
+      return;
+    }
+
+    const captain = room.players[room.captainIndex];
+    if (captain.id !== socket.id) {
+      socket.emit('errorMsg', '只有當前隊長才能點擊翻牌！');
+      return;
+    }
+
+    const targetPlayer = room.players.find(p => p.id === targetPlayerId);
+    if (!targetPlayer || targetPlayer.isRevealed) return;
+
+    targetPlayer.isRevealed = true;
+    
+    // Check ordering rules
+    const val = targetPlayer.cardNumber;
+    let sequenceBroke = false;
+    
+    if (room.revealedSequence.length > 0) {
+      const prevVal = room.revealedSequence[room.revealedSequence.length - 1];
+      if (val < prevVal) {
+        sequenceBroke = true;
+      }
+    }
+    
+    room.revealedSequence.push(val);
+
+    if (sequenceBroke) {
+      addLog(room, 'system', `💥 翻開了 ${targetPlayer.name} 的數字【${val}】！糟糕，數字比上一張【${room.revealedSequence[room.revealedSequence.length - 2]}】還要小，發生數字倒退！`);
+    } else {
+      addLog(room, 'system', `🔍 翻開了 ${targetPlayer.name} 的數字【${val}】！順序正確，安全過關。`);
+    }
+
+    // Check if everyone is revealed
+    const everyoneRevealed = room.players.every(p => p.isRevealed);
+    if (everyoneRevealed) {
+      room.roundPhase = 'revealing_complete';
+      room.players.forEach(p => p.readyToDeploy = false);
+      addLog(room, 'system', `🏁 本回合所有數字皆已揭曉！`);
+      triggerTopTenBotsReady(room);
+    }
+
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: TopTen Next Round
+  socket.on('topten_nextRound', () => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'topten') return;
+
+    if (room.roundPhase !== 'round_result') {
+      socket.emit('errorMsg', '當前不能進入下一回合。');
+      return;
+    }
+
+    // Verify if host or captain is triggerer
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || (!player.host && room.players[room.captainIndex].id !== socket.id)) {
+      socket.emit('errorMsg', '只有房主或當前隊長可以開啟下一回合。');
+      return;
+    }
+
+    room.currentRound++;
+    room.currentTopic = drawTopTenTopic(room);
+    startTopTenRound(room);
+  });
+
+  // Event: TopTen Ready for Next Round
+  socket.on('topten_readyToDeploy', () => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'topten') return;
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || player.readyToDeploy) return;
+
+    player.readyToDeploy = true;
+    addLog(room, 'system', `🆗 ${player.name} 已宣告就緒。`);
+
+    const everyoneReady = room.players.every(p => p.readyToDeploy);
+    if (everyoneReady) {
+      if (room.currentRound === room.totalRounds) {
+        room.gameEnded = true;
+        room.winnerTeam = 'Sherlock';
+        room.roundPhase = 'game_over';
+        addLog(room, 'system', `🏆 恭喜通關！完成了全部 5 個回合的考驗，贏得了完美的默契大勝利！`);
+      } else {
+        room.roundPhase = 'round_result';
+        addLog(room, 'system', `📢 全員已就緒，本回合結算完成！請隊長或房主開啟下一回合。`);
+      }
+    }
+
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: TopTen Skip Topic (only Host can trigger during answering phase)
+  socket.on('topten_skipTopic', () => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'topten') return;
+
+    if (room.roundPhase !== 'answering') {
+      socket.emit('errorMsg', '只有在回答階段才能更換題目！');
+      return;
+    }
+
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.host) {
+      socket.emit('errorMsg', '只有房主（工坊主）才能更換題目！');
+      return;
+    }
+
+    // Draw new topic
+    room.currentTopic = drawTopTenTopic(room);
+    addLog(room, 'system', `🔄 房主更換了題目！`);
+    addLog(room, 'system', `新題目為：『${room.currentTopic.question}』`);
+    addLog(room, 'system', `（數字 1 代表：『${room.currentTopic.minDescription}』 ➔ 數字 10 代表：『${room.currentTopic.maxDescription}』）`);
+
+    // Reset player answer statuses so they can answer the new topic
+    room.players.forEach(p => {
+      p.answerText = '';
+      p.hasAnswered = false;
+    });
+
+    broadcastRoomUpdate(room);
+
+    // Retrigger bot answering loop for the new topic!
+    triggerTopTenBotAction(room);
   });
 
   // Event: Disconnect
@@ -1775,6 +2009,164 @@ function revealCardOnServer(room, targetPlayerId) {
       triggerSkullBotAction(room);
     }
   }
+}
+
+// ================= TOPTEN (天才猜心王) GAME ENGINE LOGIC =================
+
+
+const BOT_ANSWER_TEMPLATES = {
+  1: [
+    "這絕對是世界末日等級的慘烈災難啊，簡直不忍直視！",
+    "超級地獄級別的體驗，糟糕透頂，完全無法接受！",
+    "簡直就是一場徹底的悲劇與災難，沒有最慘只有更慘！"
+  ],
+  2: [
+    "真的挺糟糕的，讓人感到十分無奈和搖頭...",
+    "水準非常低下，粗製濫造，看了讓人直搖頭。",
+    "缺點多到數不清，體驗相當不愉快，十分差勁。"
+  ],
+  3: [
+    "不太行耶，感覺缺點很多，不甚滿意。",
+    "稍微有一點差勁，勉強算是在及格邊緣試探。",
+    "讓人感到有些失望，整體表現乏善可陳。"
+  ],
+  4: [
+    "稍微低於一般標準，但也還勉強說得過去。",
+    "普普通通偏下一點點，沒有什麼亮點。",
+    "馬馬虎虎吧，勉強湊合，但完全不吸引人。"
+  ],
+  5: [
+    "中規中矩吧，就是極其普通、毫無亮點的表現。",
+    "標準的平均水準，不上不下，毫無特色。",
+    "沒有特別好也沒有特別壞，就是最平凡的狀態。"
+  ],
+  6: [
+    "感覺還不錯，比一般的表現稍微好上一點點。",
+    "略高於平均標準，整體感覺還算可以。",
+    "馬馬虎虎過得去，稍微有一點點可取之處。"
+  ],
+  7: [
+    "挺推薦的，各方面水準都在及格線以上！",
+    "相當不錯的表現，值得給予正面肯定的評價。",
+    "品質穩定，表現優良，比大多數情況都好。"
+  ],
+  8: [
+    "非常優異，品質極佳，讓人感到相當驚艷！",
+    "高水準發揮，非常出色，讓人十分滿意！",
+    "相當有水準，體驗很棒，非常推薦大家。"
+  ],
+  9: [
+    "簡直完美無瑕，水準高超，強烈推薦！",
+    "極度優秀，幾乎找不到任何缺點，令人拍案叫絕！",
+    "超乎想像的精采表現，接近完美的極致水準！"
+  ],
+  10: [
+    "宇宙至高神級的終極完美體驗，不接受任何反駁！",
+    "登峰造極的無上神作，堪稱完美，讓人頂禮膜拜！",
+    "這已經超越了完美的極限，簡直是奇蹟般的表現！"
+  ]
+};
+
+function drawTopTenTopic(room) {
+  if (!room.usedTopics) room.usedTopics = [];
+  const available = TOPTEN_TOPICS.filter(t => !room.usedTopics.includes(t.id));
+  if (available.length === 0) {
+    room.usedTopics = []; // reset if all used
+    return TOPTEN_TOPICS[Math.floor(Math.random() * TOPTEN_TOPICS.length)];
+  }
+  const chosen = available[Math.floor(Math.random() * available.length)];
+  room.usedTopics.push(chosen.id);
+  return chosen;
+}
+
+function getBotAnswerText(cardNumber) {
+  const arr = BOT_ANSWER_TEMPLATES[cardNumber] || BOT_ANSWER_TEMPLATES[5];
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function startTopTenRound(room) {
+  room.roundPhase = 'answering';
+  room.revealedSequence = [];
+  room.captainIndex = (room.currentRound - 1) % room.players.length;
+
+  // Draw 1-10 non-repeating numbers and distribute them
+  const numbers = shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+  room.players.forEach((p, idx) => {
+    p.cardNumber = numbers[idx];
+    p.answerText = '';
+    p.hasAnswered = false;
+    p.isRevealed = false;
+    p.readyToDeploy = false;
+  });
+
+  const captain = room.players[room.captainIndex];
+  addLog(room, 'system', `--- 🌀 第 ${room.currentRound} 回合開始 (總共 5 回合) 🌀 ---`);
+  addLog(room, 'system', `本回合隊長為：【${captain.name}】。`);
+  addLog(room, 'system', `題目為：『${room.currentTopic.question}』`);
+  addLog(room, 'system', `（數字 1 代表：『${room.currentTopic.minDescription}』 ➔ 數字 10 代表：『${room.currentTopic.maxDescription}』）`);
+  addLog(room, 'system', `請各位探員秘密查看自己的數字並提交回答，答案中【不能包含數字】！`);
+
+  broadcastRoomUpdate(room);
+
+  // Trigger bot replies automatically
+  triggerTopTenBotAction(room);
+}
+
+function triggerTopTenBotAction(room) {
+  if (room.gameEnded || room.roundPhase !== 'answering') return;
+
+  room.players.forEach(p => {
+    if (p.isBot && !p.hasAnswered) {
+      const delay = 2000 + Math.random() * 3000;
+      setTimeout(() => {
+        if (room.gameEnded || room.roundPhase !== 'answering') return;
+        const currentBot = room.players.find(pl => pl.id === p.id);
+        if (!currentBot || !currentBot.isBot || currentBot.hasAnswered) return;
+
+        currentBot.answerText = getBotAnswerText(currentBot.cardNumber);
+        currentBot.hasAnswered = true;
+        addLog(room, 'system', `✍️ ${currentBot.name} (AI 機器人) 已經提交了回答。`);
+
+        const everyoneAnswered = room.players.every(pl => pl.hasAnswered);
+        if (everyoneAnswered) {
+          room.roundPhase = 'sorting';
+          room.revealedSequence = [];
+          const captain = room.players[room.captainIndex];
+          addLog(room, 'system', `🔊 所有探員都已提交答案！進入【隊長排序階段】。`);
+          addLog(room, 'system', `請隊長【${captain.name}】點擊玩家卡牌，由小到大逐一翻開秘密數字。`);
+        }
+
+        broadcastRoomUpdate(room);
+      }, delay);
+    }
+  });
+}
+
+function triggerTopTenBotsReady(room) {
+  room.players.forEach(p => {
+    if (p.isBot && !p.readyToDeploy) {
+      setTimeout(() => {
+        if (!room.gameStarted || room.gameEnded || room.gameType !== 'topten') return;
+        p.readyToDeploy = true;
+        addLog(room, 'system', `🆗 ${p.name} (AI 機器人) 已宣告就緒。`);
+        
+        const everyoneReady = room.players.every(pl => pl.readyToDeploy);
+        if (everyoneReady) {
+          if (room.currentRound === room.totalRounds) {
+            room.gameEnded = true;
+            room.winnerTeam = 'Sherlock';
+            room.roundPhase = 'game_over';
+            addLog(room, 'system', `🏆 恭喜通關！完成了全部 5 個回合的考驗，贏得了完美的默契大勝利！`);
+          } else {
+            room.roundPhase = 'round_result';
+            addLog(room, 'system', `📢 全員已就緒，本回合結算完成！請隊長或房主開啟下一回合。`);
+          }
+        }
+        broadcastRoomUpdate(room);
+      }, 1000 + Math.random() * 1000);
+    }
+  });
 }
 
 // Start the server

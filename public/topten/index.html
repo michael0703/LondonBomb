@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天才猜心王 | 桌遊入口</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- NICKNAME & LOBBY LOGIN VIEW -->
+        <div id="login-view" class="view-panel active">
+            <div class="steampunk-border"></div>
+            <div class="gears-decor">
+                <div class="gear g-1">⚙️</div>
+                <div class="gear g-2">⚙️</div>
+            </div>
+            
+            <h1 class="logo-text">🔟 天才猜心王 🔟</h1>
+            <p class="logo-subtext">全體合作的默契與程度排序考驗</p>
+
+            <div class="input-group">
+                <label for="input-nickname">輸入你的探員暱稱</label>
+                <input type="text" id="input-nickname" placeholder="例如：福爾摩斯..." maxlength="10">
+            </div>
+
+            <div class="input-group">
+                <label for="input-room-code">房號 (加入已有房間)</label>
+                <input type="text" id="input-room-code" placeholder="例如：ABCD..." maxlength="4" style="text-transform: uppercase;">
+            </div>
+
+            <div class="button-row">
+                <button id="btn-create-room" class="btn btn-gold">
+                    <span>創建新工坊</span>
+                </button>
+                <button id="btn-join-room" class="btn btn-brass">
+                    <span>加入已有工坊</span>
+                </button>
+            </div>
+            
+            <button onclick="window.location.href='/'" class="btn btn-brass" style="margin-top: 15px; width: 100%; max-width: 320px;">
+                <span>⬅️ 返回桌遊入口</span>
+            </button>
+        </div>
+
+        <!-- WAITING LOBBY VIEW -->
+        <div id="waiting-view" class="view-panel">
+            <div class="steampunk-border"></div>
+            <div class="lobby-header">
+                <div class="room-indicator">
+                    <span class="label">當前房號</span>
+                    <span id="display-room-code" class="value">----</span>
+                </div>
+                <button onclick="window.location.href='/'" class="btn btn-brass" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">
+                    <span>🚪 離開大廳</span>
+                </button>
+            </div>
+
+            <h2 class="lobby-title">⚙️ 探員候戰室 ⚙️</h2>
+
+            <div class="lobby-columns">
+                <!-- Players list -->
+                <div class="lobby-section players-section">
+                    <h3>👥 在線探員 (<span id="player-count">0</span>/8)</h3>
+                    <ul id="lobby-players-list">
+                        <!-- Filled by JS -->
+                    </ul>
+                </div>
+
+                <!-- Rules summary -->
+                <div class="lobby-section rules-section">
+                    <h3>📋 天才猜心王 規則與目標</h3>
+                    <ul>
+                        <li>每個回合會隨機選取一位<strong>「隊長」</strong>，其餘玩家為<strong>「隊員」</strong>。</li>
+                        <li>好人陣營（全體玩家）初始共用 **8 點生命值（便便指示物）**。</li>
+                        <li>每人發一張 $1 \sim 10$ 的秘密數字牌（隱藏資訊，只有本人知道）。</li>
+                        <li><strong>回答階段:</strong> 所有人根據本期主題（例：第一次約會地點），依據自己數字的強度（1=災難，10=浪漫）給出文字敘述。<strong>答案中嚴禁包含任何數字！</strong></li>
+                        <li><strong>排序階段:</strong> 隊長看過所有人的回答後，必須**由小到大**指定玩家翻牌。如果翻出的數字小於上一個翻開的數字，則扣除 1 點生命。</li>
+                        <li>完成 5 個回合且生命值大於 0 即獲勝！</li>
+                    </ul>
+                    <div class="host-controls">
+                        <p id="lobby-status-msg" class="status-msg">等待其他探員加入...</p>
+                        <button id="btn-add-bot" class="btn btn-brass" style="margin-bottom: 12px; display: none; width: 100%;">
+                            <span>新增 AI 機器人</span>
+                        </button>
+                        <button id="btn-start-game" class="btn btn-gold btn-large disabled" disabled>
+                            <span>開始部署任務</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GAME PLAY VIEW -->
+        <div id="game-view" class="view-panel">
+            <!-- Game Top Dashboard -->
+            <div class="game-dashboard">
+                <div class="dash-item game-status-dash">
+                    <div class="dash-label">回合階段</div>
+                    <div id="display-phase" class="dash-value">準備中</div>
+                </div>
+                <div class="dash-item active-player-dash">
+                    <div class="dash-label">當前隊長</div>
+                    <div id="display-active-player" class="dash-value">-</div>
+                </div>
+                <div class="dash-item bid-status-dash" style="display: none;">
+                    <div class="dash-label">剩餘生命值</div>
+                    <div id="display-lives" class="dash-value">8 ❤️</div>
+                </div>
+                <div class="dash-item round-info-dash">
+                    <div class="dash-label">當前輪次</div>
+                    <div id="display-round-num" class="dash-value">1 / 5</div>
+                </div>
+                <div class="dash-item exit-dash">
+                    <button onclick="window.location.href='/'" class="btn btn-brass" style="padding: 6px 12px; font-size: 0.8rem; height: 42px; width: 100px;">
+                        <span>🚪 離開</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Ticker Banner Message -->
+            <div id="ticker-banner">
+                <span id="ticker-text">請點擊「宣告就緒」開始新一輪的對局。</span>
+            </div>
+
+            <!-- Main Play Area: Game Table Grid -->
+            <div id="game-table" class="table-grid">
+                <!-- Center dial containing Topic Card and Gauge -->
+                <div id="table-center-dial" class="table-center-dial">
+                    <div class="gauge-container" style="display: none;">
+                        <!-- Pressure gauge needle container -->
+                        <div class="gauge-pointer-wrapper">
+                            <div id="gauge-needle" class="gauge-pointer"></div>
+                        </div>
+                        <div class="gauge-label">LIVES: <span id="gauge-lives-val">8</span></div>
+                    </div>
+                    <div id="topic-card-element" class="topic-card">
+                        <div class="topic-header">📋 當前任務主題</div>
+                        <div id="topic-question" class="topic-question">載入主題中...</div>
+                        <div class="topic-scale">
+                            <div class="scale-item scale-min">
+                                <span class="num">1</span>
+                                <span id="topic-min-desc" class="desc">最災難</span>
+                            </div>
+                            <div class="scale-arrow">➔</div>
+                            <div class="scale-item scale-max">
+                                <span class="num">10</span>
+                                <span id="topic-max-desc" class="desc">最完美</span>
+                            </div>
+                        </div>
+                        <button id="btn-skip-topic" class="btn btn-brass" style="margin-top: 8px; padding: 4px 8px; font-size: 0.72rem; display: none; width: 100%;">
+                            <span>🔄 更換題目</span>
+                        </button>
+                    </div>
+                </div>
+                <!-- Dynamic Player Boxes Rendered by JS -->
+            </div>
+
+            <!-- Bottom Control Panel -->
+            <div class="bottom-controls">
+                <!-- Answering Phase Panel -->
+                <div id="panel-answering" class="control-sub-panel">
+                    <div class="control-hint">你的祕密數字是：<span id="my-secret-number" class="text-gold">?</span>。請輸入符合你數字強度的文字描述，請避免直接說出你的秘密數字喔！</div>
+                    <div class="answering-form">
+                        <input type="text" id="input-answer-text" placeholder="輸入符合你數字強度的文字描述..." maxlength="40">
+                        <button id="btn-submit-answer" class="btn btn-gold">
+                            <span>提交回答</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Sorting Phase Panel -->
+                <div id="panel-sorting" class="control-sub-panel">
+                    <div id="sorting-hint-text" class="control-hint">排序進行中：請隊長點選卡牌，由小到大翻開。</div>
+                </div>
+
+                <!-- Round Result Phase Panel -->
+                <div id="panel-result" class="control-sub-panel">
+                    <div class="control-hint">本回合結算完畢！</div>
+                    <button id="btn-next-round" class="btn btn-gold">
+                        <span>開啟下一回合</span>
+                    </button>
+                </div>
+
+                <!-- Spectating Panel -->
+                <div id="panel-spectating" class="control-sub-panel">
+                    <div class="control-hint text-red">等待其他探員行動中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CHALLENGE RESULT MODAL -->
+    <div id="result-modal" class="modal-overlay">
+        <div class="steampunk-modal">
+            <div class="modal-gears">⚙️🔟⚙️</div>
+            <h2 id="result-title" class="modal-title">回合排序結算</h2>
+            <div id="result-badge" class="result-badge-success">🟢 順利過關</div>
+            <p id="result-details" class="modal-desc">詳細資訊正在載入...</p>
+            <div class="modal-actions" style="margin-top: 20px;">
+                <button id="btn-result-ready" class="btn btn-gold">
+                    <span>宣告就緒</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME OVER / SUMMARY MODAL -->
+    <div id="game-over-modal" class="modal-overlay">
+        <div class="steampunk-modal">
+            <div class="modal-gears">⚙️⚙️⚙️</div>
+            <h1 id="game-over-title" class="logo-text">🏆 任務結束 🏆</h1>
+            <h2 id="game-over-subtitle" class="text-gold">恭喜通關！</h2>
+            
+            <div id="game-over-content">
+                <ul id="final-scores-list" class="scores-list">
+                    <!-- Final status of players -->
+                </ul>
+            </div>
+            
+            <div class="modal-actions">
+                <button id="btn-exit-lobby" class="btn btn-brass">
+                    <span>回到大廳</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ERROR TOAST NOTIFICATION -->
+    <div id="error-toast" class="error-toast">錯誤提示資訊</div>
+
+    <!-- Socket.io & Game Logic script -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
