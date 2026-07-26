@@ -168,6 +168,7 @@ function getSanitizedRoomState(room, socketId) {
       captainIndex: room.captainIndex || 0,
       currentTopic: room.currentTopic || null,
       players: sanitizedPlayers,
+      revealedSequence: room.revealedSequence || [],
       history: room.history,
       me: me ? {
         id: me.id,
@@ -2127,17 +2128,24 @@ function drawTopTenTopic(room) {
 }
 
 function getBotAnswerText(cardNumber) {
-  const arr = BOT_ANSWER_TEMPLATES[cardNumber] || BOT_ANSWER_TEMPLATES[5];
+  const scaleIndex = Math.min(10, Math.max(1, Math.ceil(cardNumber / 10)));
+  const arr = BOT_ANSWER_TEMPLATES[scaleIndex] || BOT_ANSWER_TEMPLATES[5];
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function startTopTenRound(room) {
   room.roundPhase = 'answering';
   room.revealedSequence = [];
-  room.captainIndex = (room.currentRound - 1) % room.players.length;
+  const humanPlayers = room.players.filter(p => !p.isBot);
+  if (humanPlayers.length > 0) {
+    const humanCaptain = humanPlayers[(room.currentRound - 1) % humanPlayers.length];
+    room.captainIndex = room.players.findIndex(p => p.id === humanCaptain.id);
+  } else {
+    room.captainIndex = 0;
+  }
 
-  // Draw 1-10 non-repeating numbers and distribute them
-  const numbers = shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  // Draw 1-100 non-repeating numbers and distribute them
+  const numbers = shuffle(Array.from({ length: 100 }, (_, i) => i + 1));
 
   room.players.forEach((p, idx) => {
     p.cardNumber = numbers[idx];
@@ -2151,8 +2159,8 @@ function startTopTenRound(room) {
   addLog(room, 'system', `--- 🌀 第 ${room.currentRound} 回合開始 (總共 5 回合) 🌀 ---`);
   addLog(room, 'system', `本回合隊長為：【${captain.name}】。`);
   addLog(room, 'system', `題目為：『${room.currentTopic.question}』`);
-  addLog(room, 'system', `（數字 1 代表：『${room.currentTopic.minDescription}』 ➔ 數字 10 代表：『${room.currentTopic.maxDescription}』）`);
-  addLog(room, 'system', `請各位探員秘密查看自己的數字並提交回答，答案中【不能包含數字】！`);
+  addLog(room, 'system', `（數字 1 代表：『${room.currentTopic.minDescription}』 ➔ 數字 100 代表：『${room.currentTopic.maxDescription}』）`);
+  addLog(room, 'system', `請各位探員秘密查看自己的數字並提交回答，請避免直接說出數字喔！`);
 
   broadcastRoomUpdate(room);
 

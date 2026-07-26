@@ -75,11 +75,11 @@
                     <h3>📋 天才猜心王 規則與目標</h3>
                     <ul>
                         <li>每個回合會隨機選取一位<strong>「隊長」</strong>，其餘玩家為<strong>「隊員」</strong>。</li>
-                        <li>好人陣營（全體玩家）初始共用 **8 點生命值（便便指示物）**。</li>
-                        <li>每人發一張 $1 \sim 10$ 的秘密數字牌（隱藏資訊，只有本人知道）。</li>
-                        <li><strong>回答階段:</strong> 所有人根據本期主題（例：第一次約會地點），依據自己數字的強度（1=災難，10=浪漫）給出文字敘述。<strong>答案中嚴禁包含任何數字！</strong></li>
-                        <li><strong>排序階段:</strong> 隊長看過所有人的回答後，必須**由小到大**指定玩家翻牌。如果翻出的數字小於上一個翻開的數字，則扣除 1 點生命。</li>
-                        <li>完成 5 個回合且生命值大於 0 即獲勝！</li>
+                        <li>好人陣營（全體玩家）共同挑戰在 5 個回合中完成默契排序。</li>
+                        <li>每人分發一張 <strong>1 到 100</strong> 的秘密數字牌（隱藏資訊，只有本人知道）。</li>
+                        <li><strong>回答階段：</strong>所有人根據當前主題，依據自己數字的強度（1 代表最差/最極端，100 代表最好/最完美）給出文字敘述。</li>
+                        <li><strong>排序階段：</strong>隊長看過所有人的回答後，必須<strong>由小到大</strong>指定玩家翻牌，揭曉全體默契！</li>
+                        <li>順利完成 5 個回合的考驗，即可贏得默契大勝利！</li>
                     </ul>
                     <div class="host-controls">
                         <p id="lobby-status-msg" class="status-msg">等待其他探員加入...</p>
@@ -146,8 +146,8 @@
                                 <span id="topic-min-desc" class="desc">最災難</span>
                             </div>
                             <div class="scale-arrow">➔</div>
-                            <div class="scale-item scale-max">
-                                <span class="num">10</span>
+                             <div class="scale-item scale-max">
+                                <span class="num">100</span>
                                 <span id="topic-max-desc" class="desc">最完美</span>
                             </div>
                         </div>
@@ -248,7 +248,7 @@
                         <input type="text" id="input-custom-min" placeholder="例如：超普通" maxlength="15" style="width: 100%; padding: 10px; border: 2px solid #52a396; border-radius: 8px; font-size: 0.95rem; background: #faf7f2; color: #3c2f2f;">
                     </div>
                     <div style="flex: 1;">
-                        <label style="display: block; font-weight: bold; margin-bottom: 6px; color: #3c2f2f;">數字 10 代表的刻度描述</label>
+                        <label style="display: block; font-weight: bold; margin-bottom: 6px; color: #3c2f2f;">數字 100 代表的刻度描述</label>
                         <input type="text" id="input-custom-max" placeholder="例如：超荒謬" maxlength="15" style="width: 100%; padding: 10px; border: 2px solid #52a396; border-radius: 8px; font-size: 0.95rem; background: #faf7f2; color: #3c2f2f;">
                     </div>
                 </div>

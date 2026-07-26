@@ -256,15 +256,41 @@ function renderWaitingRoom(state) {
         if (p.id === socket.id) nameSpan.textContent += ' (你)';
         li.appendChild(nameSpan);
         
-        const badgeSpan = document.createElement('span');
+        const badgeAndActionContainer = document.createElement('div');
+        badgeAndActionContainer.style.display = 'flex';
+        badgeAndActionContainer.style.alignItems = 'center';
+        badgeAndActionContainer.style.gap = '8px';
+
         if (p.host) {
+            const badgeSpan = document.createElement('span');
             badgeSpan.className = 'badge badge-host';
             badgeSpan.textContent = '工坊主';
+            badgeAndActionContainer.appendChild(badgeSpan);
         } else if (p.isBot) {
+            const badgeSpan = document.createElement('span');
             badgeSpan.className = 'badge badge-bot';
             badgeSpan.textContent = 'AI';
+            badgeAndActionContainer.appendChild(badgeSpan);
         }
-        li.appendChild(badgeSpan);
+
+        // If I am the host and this player is not me, render a kick button!
+        const me = state.players.find(pl => pl.id === socket.id);
+        const isHost = me ? me.host : false;
+        if (isHost && p.id !== socket.id) {
+            const kickBtn = document.createElement('button');
+            kickBtn.className = 'btn btn-brass';
+            kickBtn.style.padding = '2px 8px';
+            kickBtn.style.fontSize = '0.72rem';
+            kickBtn.style.height = 'auto';
+            kickBtn.innerHTML = '<span>剔除</span>';
+            kickBtn.addEventListener('click', () => {
+                AudioSynth.playTick();
+                socket.emit('kickPlayer', { targetId: p.id });
+            });
+            badgeAndActionContainer.appendChild(kickBtn);
+        }
+        
+        li.appendChild(badgeAndActionContainer);
         displays.lobbyPlayersList.appendChild(li);
     });
     
@@ -697,7 +723,10 @@ socket.on('topten_sequenceErrorSound', () => {
     AudioSynth.playErrorBuzzer();
 });
 
-// START CLIENT INITIALIZATION
+socket.on('kicked', () => {
+    showError('你已被工坊主剔除出房間。');
+    switchView('login');
+});
 window.addEventListener('load', () => {
     SteamCanvas.init();
     initSocketAndEvents();
