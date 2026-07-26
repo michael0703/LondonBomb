@@ -154,6 +154,9 @@
                         <button id="btn-skip-topic" class="btn btn-brass" style="margin-top: 8px; padding: 4px 8px; font-size: 0.72rem; display: none; width: 100%;">
                             <span>🔄 更換題目</span>
                         </button>
+                        <button id="btn-custom-topic" class="btn btn-gold" style="margin-top: 8px; padding: 4px 8px; font-size: 0.72rem; display: none; width: 100%;">
+                            <span>✍️ 自訂題目</span>
+                        </button>
                     </div>
                 </div>
                 <!-- Dynamic Player Boxes Rendered by JS -->
@@ -224,6 +227,39 @@
             <div class="modal-actions">
                 <button id="btn-exit-lobby" class="btn btn-brass">
                     <span>回到大廳</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CUSTOM TOPIC INPUT MODAL -->
+    <div id="custom-topic-modal" class="modal-overlay">
+        <div class="steampunk-modal" style="max-width: 500px; width: 90%;">
+            <div class="modal-gears">📝✍️📝</div>
+            <h2 class="modal-title">自訂本回合任務主題</h2>
+            
+            <div style="text-align: left; margin: 15px 0;">
+                <label style="display: block; font-weight: bold; margin-bottom: 6px; color: #3c2f2f;">任務題目 (例如：養了一隻恐龍，取什麼名字？)</label>
+                <input type="text" id="input-custom-question" placeholder="輸入你想問的有趣問題..." maxlength="60" style="width: 100%; padding: 10px; border: 2px solid #52a396; border-radius: 8px; font-size: 0.95rem; margin-bottom: 12px; background: #faf7f2; color: #3c2f2f;">
+                
+                <div style="display: flex; gap: 10px;">
+                    <div style="flex: 1;">
+                        <label style="display: block; font-weight: bold; margin-bottom: 6px; color: #3c2f2f;">數字 1 代表的刻度描述</label>
+                        <input type="text" id="input-custom-min" placeholder="例如：超普通" maxlength="15" style="width: 100%; padding: 10px; border: 2px solid #52a396; border-radius: 8px; font-size: 0.95rem; background: #faf7f2; color: #3c2f2f;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="display: block; font-weight: bold; margin-bottom: 6px; color: #3c2f2f;">數字 10 代表的刻度描述</label>
+                        <input type="text" id="input-custom-max" placeholder="例如：超荒謬" maxlength="15" style="width: 100%; padding: 10px; border: 2px solid #52a396; border-radius: 8px; font-size: 0.95rem; background: #faf7f2; color: #3c2f2f;">
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
+                <button id="btn-custom-cancel" class="btn btn-brass" style="flex: 1;">
+                    <span>取消</span>
+                </button>
+                <button id="btn-custom-submit" class="btn btn-gold" style="flex: 1;">
+                    <span>確認設定</span>
                 </button>
             </div>
         </div>

@@ -190,7 +190,16 @@ const displays = {
     gameOverSubtitle: document.getElementById('game-over-subtitle'),
     finalScoresList: document.getElementById('final-scores-list'),
     btnExitLobby: document.getElementById('btn-exit-lobby'),
-    errorToast: document.getElementById('error-toast')
+    errorToast: document.getElementById('error-toast'),
+    
+    // Custom topic controls
+    btnCustomTopic: document.getElementById('btn-custom-topic'),
+    customTopicModal: document.getElementById('custom-topic-modal'),
+    inputCustomQuestion: document.getElementById('input-custom-question'),
+    inputCustomMin: document.getElementById('input-custom-min'),
+    inputCustomMax: document.getElementById('input-custom-max'),
+    btnCustomCancel: document.getElementById('btn-custom-cancel'),
+    btnCustomSubmit: document.getElementById('btn-custom-submit')
 };
 
 const buttons = {
@@ -479,11 +488,17 @@ function renderGameBoard(state, me) {
         }
     }
     
-    // Show/hide skip topic button based on role and phase
-    if (state.roundPhase === 'answering' && isHost) {
-        displays.btnSkipTopic.style.display = 'block';
+    // Show/hide skip/custom topic buttons based on role and phase
+    if (state.roundPhase === 'answering') {
+        if (isHost) displays.btnSkipTopic.style.display = 'block';
+        else displays.btnSkipTopic.style.display = 'none';
+
+        const isMeCaptain = captain && captain.id === socket.id;
+        if (isMeCaptain) displays.btnCustomTopic.style.display = 'block';
+        else displays.btnCustomTopic.style.display = 'none';
     } else {
         displays.btnSkipTopic.style.display = 'none';
+        displays.btnCustomTopic.style.display = 'none';
     }
     
     displays.tickerText.textContent = ticker;
@@ -619,6 +634,39 @@ function initSocketAndEvents() {
     displays.btnSkipTopic.addEventListener('click', () => {
         AudioSynth.playTick();
         socket.emit('topten_skipTopic');
+    });
+
+    // Custom Topic dialog triggers
+    displays.btnCustomTopic.addEventListener('click', () => {
+        AudioSynth.playTick();
+        displays.inputCustomQuestion.value = '';
+        displays.inputCustomMin.value = '';
+        displays.inputCustomMax.value = '';
+        displays.customTopicModal.classList.add('active');
+    });
+
+    displays.btnCustomCancel.addEventListener('click', () => {
+        AudioSynth.playTick();
+        displays.customTopicModal.classList.remove('active');
+    });
+
+    displays.btnCustomSubmit.addEventListener('click', () => {
+        const question = displays.inputCustomQuestion.value.trim();
+        const minD = displays.inputCustomMin.value.trim();
+        const maxD = displays.inputCustomMax.value.trim();
+
+        if (!question || !minD || !maxD) {
+            showError('所有自訂題目與刻度欄位皆不能為空！');
+            return;
+        }
+
+        AudioSynth.playValve();
+        socket.emit('topten_setCustomTopic', {
+            question: question,
+            minDescription: minD,
+            maxDescription: maxD
+        });
+        displays.customTopicModal.classList.remove('active');
     });
 
     displays.btnExitLobby.addEventListener('click', () => {

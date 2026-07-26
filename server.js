@@ -1164,6 +1164,53 @@ io.on('connection', (socket) => {
     triggerTopTenBotAction(room);
   });
 
+  // Event: TopTen Custom Topic (only Captain can trigger during answering phase)
+  socket.on('topten_setCustomTopic', ({ question, minDescription, maxDescription }) => {
+    let room = getRoomBySocket(socket);
+    if (!room || !room.gameStarted || room.gameEnded || room.gameType !== 'topten') return;
+
+    if (room.roundPhase !== 'answering') {
+      socket.emit('errorMsg', '只有在回答階段才能自訂題目！');
+      return;
+    }
+
+    const captain = room.players[room.captainIndex];
+    if (!captain || captain.id !== socket.id) {
+      socket.emit('errorMsg', '只有當前隊長才能自訂題目！');
+      return;
+    }
+
+    const q = (question || '').trim();
+    const minD = (minDescription || '').trim();
+    const maxD = (maxDescription || '').trim();
+
+    if (!q || !minD || !maxD) {
+      socket.emit('errorMsg', '自訂題目與刻度描述不能為空！');
+      return;
+    }
+
+    room.currentTopic = {
+      id: 'custom_' + Date.now(),
+      question: q,
+      minDescription: minD,
+      maxDescription: maxD
+    };
+
+    addLog(room, 'system', `✍️ 隊長 ${captain.name} 手動自訂了新題目：『${q}』！`);
+    addLog(room, 'system', `（數字 1 代表：『${minD}』 ➔ 數字 10 代表：『${maxD}』）`);
+
+    // Reset player answer statuses so they can answer the new topic
+    room.players.forEach(p => {
+      p.answerText = '';
+      p.hasAnswered = false;
+    });
+
+    broadcastRoomUpdate(room);
+
+    // Retrigger bot answering loop for the new topic!
+    triggerTopTenBotAction(room);
+  });
+
   // Event: Disconnect
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
