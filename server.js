@@ -1100,6 +1100,8 @@ io.on('connection', (socket) => {
     }
 
     room.currentRound++;
+    // Rotate captain to the next player (cyclic)
+    room.captainIndex = (room.captainIndex + 1) % room.players.length;
     room.currentTopic = drawTopTenTopic(room);
     startTopTenRound(room);
   });
