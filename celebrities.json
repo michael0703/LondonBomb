@@ -1,0 +1,1252 @@
+[
+  {
+    "id": 1,
+    "name": "周杰倫",
+    "category": "台灣"
+  },
+  {
+    "id": 2,
+    "name": "蔡依林",
+    "category": "台灣"
+  },
+  {
+    "id": 3,
+    "name": "林志玲",
+    "category": "台灣"
+  },
+  {
+    "id": 4,
+    "name": "張惠妹",
+    "category": "台灣"
+  },
+  {
+    "id": 5,
+    "name": "五月天阿信",
+    "category": "台灣"
+  },
+  {
+    "id": 6,
+    "name": "周子瑜",
+    "category": "台灣"
+  },
+  {
+    "id": 7,
+    "name": "羅志祥",
+    "category": "台灣"
+  },
+  {
+    "id": 8,
+    "name": "王力宏",
+    "category": "台灣"
+  },
+  {
+    "id": 9,
+    "name": "林俊傑",
+    "category": "台灣"
+  },
+  {
+    "id": 10,
+    "name": "楊丞琳",
+    "category": "台灣"
+  },
+  {
+    "id": 11,
+    "name": "蕭敬騰",
+    "category": "台灣"
+  },
+  {
+    "id": 12,
+    "name": "吳宗憲",
+    "category": "台灣"
+  },
+  {
+    "id": 13,
+    "name": "蔡康永",
+    "category": "台灣"
+  },
+  {
+    "id": 14,
+    "name": "小S徐熙娣",
+    "category": "台灣"
+  },
+  {
+    "id": 15,
+    "name": "大S徐熙媛",
+    "category": "台灣"
+  },
+  {
+    "id": 16,
+    "name": "言承旭",
+    "category": "台灣"
+  },
+  {
+    "id": 17,
+    "name": "彭于晏",
+    "category": "台灣"
+  },
+  {
+    "id": 18,
+    "name": "桂綸鎂",
+    "category": "台灣"
+  },
+  {
+    "id": 19,
+    "name": "林依晨",
+    "category": "台灣"
+  },
+  {
+    "id": 20,
+    "name": "舒淇",
+    "category": "台灣"
+  },
+  {
+    "id": 21,
+    "name": "金城武",
+    "category": "台灣"
+  },
+  {
+    "id": 22,
+    "name": "李安",
+    "category": "台灣"
+  },
+  {
+    "id": 23,
+    "name": "九把刀",
+    "category": "台灣"
+  },
+  {
+    "id": 24,
+    "name": "柯震東",
+    "category": "台灣"
+  },
+  {
+    "id": 25,
+    "name": "陳妍希",
+    "category": "台灣"
+  },
+  {
+    "id": 26,
+    "name": "賈靜雯",
+    "category": "台灣"
+  },
+  {
+    "id": 27,
+    "name": "白冰冰",
+    "category": "台灣"
+  },
+  {
+    "id": 28,
+    "name": "費玉清",
+    "category": "台灣"
+  },
+  {
+    "id": 29,
+    "name": "鄧麗君",
+    "category": "台灣"
+  },
+  {
+    "id": 30,
+    "name": "郭台銘",
+    "category": "台灣"
+  },
+  {
+    "id": 31,
+    "name": "張忠謀",
+    "category": "台灣"
+  },
+  {
+    "id": 32,
+    "name": "黃仁勳",
+    "category": "台灣"
+  },
+  {
+    "id": 33,
+    "name": "蘇姿丰",
+    "category": "台灣"
+  },
+  {
+    "id": 34,
+    "name": "王建民",
+    "category": "台灣"
+  },
+  {
+    "id": 35,
+    "name": "陳偉殷",
+    "category": "台灣"
+  },
+  {
+    "id": 36,
+    "name": "林書豪",
+    "category": "台灣"
+  },
+  {
+    "id": 37,
+    "name": "戴資穎",
+    "category": "台灣"
+  },
+  {
+    "id": 38,
+    "name": "郭婞淳",
+    "category": "台灣"
+  },
+  {
+    "id": 39,
+    "name": "李洋",
+    "category": "台灣"
+  },
+  {
+    "id": 40,
+    "name": "曾雅妮",
+    "category": "台灣"
+  },
+  {
+    "id": 41,
+    "name": "館長陳之漢",
+    "category": "台灣"
+  },
+  {
+    "id": 42,
+    "name": "蔡阿嘎",
+    "category": "台灣"
+  },
+  {
+    "id": 43,
+    "name": "Joeman",
+    "category": "台灣"
+  },
+  {
+    "id": 44,
+    "name": "阿滴",
+    "category": "台灣"
+  },
+  {
+    "id": 45,
+    "name": "柯文哲",
+    "category": "台灣"
+  },
+  {
+    "id": 46,
+    "name": "韓國瑜",
+    "category": "台灣"
+  },
+  {
+    "id": 47,
+    "name": "賴清德",
+    "category": "台灣"
+  },
+  {
+    "id": 48,
+    "name": "蔡英文",
+    "category": "台灣"
+  },
+  {
+    "id": 49,
+    "name": "馬英九",
+    "category": "台灣"
+  },
+  {
+    "id": 50,
+    "name": "陳水扁",
+    "category": "台灣"
+  },
+  {
+    "id": 51,
+    "name": "蔣介石",
+    "category": "台灣"
+  },
+  {
+    "id": 52,
+    "name": "孫中山",
+    "category": "台灣"
+  },
+  {
+    "id": 53,
+    "name": "蔣經國",
+    "category": "台灣"
+  },
+  {
+    "id": 54,
+    "name": "證嚴法師",
+    "category": "台灣"
+  },
+  {
+    "id": 55,
+    "name": "吳寶春",
+    "category": "台灣"
+  },
+  {
+    "id": 56,
+    "name": "林懷民",
+    "category": "台灣"
+  },
+  {
+    "id": 57,
+    "name": "三毛",
+    "category": "台灣"
+  },
+  {
+    "id": 58,
+    "name": "瓊瑤",
+    "category": "台灣"
+  },
+  {
+    "id": 59,
+    "name": "張學友",
+    "category": "港中"
+  },
+  {
+    "id": 60,
+    "name": "郭富城",
+    "category": "港中"
+  },
+  {
+    "id": 61,
+    "name": "劉德華",
+    "category": "港中"
+  },
+  {
+    "id": 62,
+    "name": "梁朝偉",
+    "category": "港中"
+  },
+  {
+    "id": 63,
+    "name": "周潤發",
+    "category": "港中"
+  },
+  {
+    "id": 64,
+    "name": "周星馳",
+    "category": "港中"
+  },
+  {
+    "id": 65,
+    "name": "成龍",
+    "category": "港中"
+  },
+  {
+    "id": 66,
+    "name": "李小龍",
+    "category": "港中"
+  },
+  {
+    "id": 67,
+    "name": "李連杰",
+    "category": "港中"
+  },
+  {
+    "id": 68,
+    "name": "甄子丹",
+    "category": "港中"
+  },
+  {
+    "id": 69,
+    "name": "王菲",
+    "category": "港中"
+  },
+  {
+    "id": 70,
+    "name": "那英",
+    "category": "港中"
+  },
+  {
+    "id": 71,
+    "name": "楊紫瓊",
+    "category": "港中"
+  },
+  {
+    "id": 72,
+    "name": "鞏俐",
+    "category": "港中"
+  },
+  {
+    "id": 73,
+    "name": "章子怡",
+    "category": "港中"
+  },
+  {
+    "id": 74,
+    "name": "范冰冰",
+    "category": "港中"
+  },
+  {
+    "id": 75,
+    "name": "趙薇",
+    "category": "港中"
+  },
+  {
+    "id": 76,
+    "name": "楊冪",
+    "category": "港中"
+  },
+  {
+    "id": 77,
+    "name": "易烊千璽",
+    "category": "港中"
+  },
+  {
+    "id": 78,
+    "name": "鄧紫棋",
+    "category": "港中"
+  },
+  {
+    "id": 79,
+    "name": "金庸",
+    "category": "港中"
+  },
+  {
+    "id": 80,
+    "name": "魯迅",
+    "category": "港中"
+  },
+  {
+    "id": 81,
+    "name": "張愛玲",
+    "category": "港中"
+  },
+  {
+    "id": 82,
+    "name": "馬雲",
+    "category": "港中"
+  },
+  {
+    "id": 83,
+    "name": "姚明",
+    "category": "港中"
+  },
+  {
+    "id": 84,
+    "name": "劉翔",
+    "category": "港中"
+  },
+  {
+    "id": 85,
+    "name": "李娜",
+    "category": "港中"
+  },
+  {
+    "id": 86,
+    "name": "張怡寧",
+    "category": "港中"
+  },
+  {
+    "id": 87,
+    "name": "毛澤東",
+    "category": "港中"
+  },
+  {
+    "id": 88,
+    "name": "鄧小平",
+    "category": "港中"
+  },
+  {
+    "id": 89,
+    "name": "習近平",
+    "category": "港中"
+  },
+  {
+    "id": 90,
+    "name": "木村拓哉",
+    "category": "日韓"
+  },
+  {
+    "id": 91,
+    "name": "新垣結衣",
+    "category": "日韓"
+  },
+  {
+    "id": 92,
+    "name": "石原聰美",
+    "category": "日韓"
+  },
+  {
+    "id": 93,
+    "name": "山下智久",
+    "category": "日韓"
+  },
+  {
+    "id": 94,
+    "name": "福山雅治",
+    "category": "日韓"
+  },
+  {
+    "id": 95,
+    "name": "宮崎駿",
+    "category": "日韓"
+  },
+  {
+    "id": 96,
+    "name": "新海誠",
+    "category": "日韓"
+  },
+  {
+    "id": 97,
+    "name": "北野武",
+    "category": "日韓"
+  },
+  {
+    "id": 98,
+    "name": "大谷翔平",
+    "category": "日韓"
+  },
+  {
+    "id": 99,
+    "name": "鈴木一朗",
+    "category": "日韓"
+  },
+  {
+    "id": 100,
+    "name": "羽生結弦",
+    "category": "日韓"
+  },
+  {
+    "id": 101,
+    "name": "大坂直美",
+    "category": "日韓"
+  },
+  {
+    "id": 102,
+    "name": "村上春樹",
+    "category": "日韓"
+  },
+  {
+    "id": 103,
+    "name": "東野圭吾",
+    "category": "日韓"
+  },
+  {
+    "id": 104,
+    "name": "鳥山明",
+    "category": "日韓"
+  },
+  {
+    "id": 105,
+    "name": "尾田榮一郎",
+    "category": "日韓"
+  },
+  {
+    "id": 106,
+    "name": "安倍晉三",
+    "category": "日韓"
+  },
+  {
+    "id": 107,
+    "name": "渡邊直美",
+    "category": "日韓"
+  },
+  {
+    "id": 108,
+    "name": "濱崎步",
+    "category": "日韓"
+  },
+  {
+    "id": 109,
+    "name": "宇多田光",
+    "category": "日韓"
+  },
+  {
+    "id": 110,
+    "name": "米津玄師",
+    "category": "日韓"
+  },
+  {
+    "id": 111,
+    "name": "BLACKPINK Lisa",
+    "category": "日韓"
+  },
+  {
+    "id": 112,
+    "name": "BLACKPINK Jennie",
+    "category": "日韓"
+  },
+  {
+    "id": 113,
+    "name": "BTS 防彈少年團",
+    "category": "日韓"
+  },
+  {
+    "id": 114,
+    "name": "權志龍 G-Dragon",
+    "category": "日韓"
+  },
+  {
+    "id": 115,
+    "name": "PSY",
+    "category": "日韓"
+  },
+  {
+    "id": 116,
+    "name": "IU 李知恩",
+    "category": "日韓"
+  },
+  {
+    "id": 117,
+    "name": "宋慧喬",
+    "category": "日韓"
+  },
+  {
+    "id": 118,
+    "name": "孔劉",
+    "category": "日韓"
+  },
+  {
+    "id": 119,
+    "name": "玄彬",
+    "category": "日韓"
+  },
+  {
+    "id": 120,
+    "name": "李敏鎬",
+    "category": "日韓"
+  },
+  {
+    "id": 121,
+    "name": "全智賢",
+    "category": "日韓"
+  },
+  {
+    "id": 122,
+    "name": "孫興慜",
+    "category": "日韓"
+  },
+  {
+    "id": 123,
+    "name": "奉俊昊",
+    "category": "日韓"
+  },
+  {
+    "id": 124,
+    "name": "金正恩",
+    "category": "日韓"
+  },
+  {
+    "id": 125,
+    "name": "泰勒絲 Taylor Swift",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 126,
+    "name": "碧昂絲 Beyoncé",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 127,
+    "name": "女神卡卡 Lady Gaga",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 128,
+    "name": "小賈斯汀 Justin Bieber",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 129,
+    "name": "艾德·希蘭 Ed Sheeran",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 130,
+    "name": "愛黛兒 Adele",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 131,
+    "name": "蕾哈娜 Rihanna",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 132,
+    "name": "布魯諾·馬爾斯 Bruno Mars",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 133,
+    "name": "阿姆 Eminem",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 134,
+    "name": "麥可·傑克森 Michael Jackson",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 135,
+    "name": "瑪丹娜 Madonna",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 136,
+    "name": "貓王 Elvis Presley",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 137,
+    "name": "約翰·藍儂 John Lennon",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 138,
+    "name": "佛萊迪·墨裘瑞 Freddie Mercury",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 139,
+    "name": "惠妮·休斯頓 Whitney Houston",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 140,
+    "name": "比莉·艾利許 Billie Eilish",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 141,
+    "name": "湯姆·克魯斯 Tom Cruise",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 142,
+    "name": "李奧納多 Leonardo DiCaprio",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 143,
+    "name": "布萊德·彼特 Brad Pitt",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 144,
+    "name": "安潔莉娜·裘莉 Angelina Jolie",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 145,
+    "name": "強尼·戴普 Johnny Depp",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 146,
+    "name": "小勞勃·道尼 Robert Downey Jr.",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 147,
+    "name": "基努·李維 Keanu Reeves",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 148,
+    "name": "威爾·史密斯 Will Smith",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 149,
+    "name": "巨石強森 Dwayne Johnson",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 150,
+    "name": "阿諾·史瓦辛格 Arnold Schwarzenegger",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 151,
+    "name": "摩根·費里曼 Morgan Freeman",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 152,
+    "name": "湯姆·漢克斯 Tom Hanks",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 153,
+    "name": "艾瑪·華森 Emma Watson",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 154,
+    "name": "丹尼爾·雷德克里夫 Daniel Radcliffe",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 155,
+    "name": "史嘉蕾·喬韓森 Scarlett Johansson",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 156,
+    "name": "瑪麗蓮·夢露 Marilyn Monroe",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 157,
+    "name": "奧黛麗·赫本 Audrey Hepburn",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 158,
+    "name": "卓別林 Charlie Chaplin",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 159,
+    "name": "金·凱瑞 Jim Carrey",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 160,
+    "name": "傑森·史塔森 Jason Statham",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 161,
+    "name": "克里斯·漢斯沃 Chris Hemsworth",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 162,
+    "name": "湯姆·霍蘭德 Tom Holland",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 163,
+    "name": "提摩西·夏勒梅 Timothée Chalamet",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 164,
+    "name": "史蒂芬·史匹柏 Steven Spielberg",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 165,
+    "name": "克里斯多福·諾蘭 Christopher Nolan",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 166,
+    "name": "華特·迪士尼 Walt Disney",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 167,
+    "name": "歐普拉 Oprah Winfrey",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 168,
+    "name": "金·卡戴珊 Kim Kardashian",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 169,
+    "name": "豆豆先生 Rowan Atkinson",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 170,
+    "name": "J·K·羅琳 J.K. Rowling",
+    "category": "歐美娛樂"
+  },
+  {
+    "id": 171,
+    "name": "麥可·喬丹 Michael Jordan",
+    "category": "運動"
+  },
+  {
+    "id": 172,
+    "name": "柯比·布萊恩 Kobe Bryant",
+    "category": "運動"
+  },
+  {
+    "id": 173,
+    "name": "勒布朗·詹姆斯 LeBron James",
+    "category": "運動"
+  },
+  {
+    "id": 174,
+    "name": "史蒂芬·柯瑞 Stephen Curry",
+    "category": "運動"
+  },
+  {
+    "id": 175,
+    "name": "梅西 Lionel Messi",
+    "category": "運動"
+  },
+  {
+    "id": 176,
+    "name": "C羅 Cristiano Ronaldo",
+    "category": "運動"
+  },
+  {
+    "id": 177,
+    "name": "貝克漢 David Beckham",
+    "category": "運動"
+  },
+  {
+    "id": 178,
+    "name": "比利 Pelé",
+    "category": "運動"
+  },
+  {
+    "id": 179,
+    "name": "馬拉度納 Diego Maradona",
+    "category": "運動"
+  },
+  {
+    "id": 180,
+    "name": "老虎伍茲 Tiger Woods",
+    "category": "運動"
+  },
+  {
+    "id": 181,
+    "name": "費德勒 Roger Federer",
+    "category": "運動"
+  },
+  {
+    "id": 182,
+    "name": "小威廉絲 Serena Williams",
+    "category": "運動"
+  },
+  {
+    "id": 183,
+    "name": "納達爾 Rafael Nadal",
+    "category": "運動"
+  },
+  {
+    "id": 184,
+    "name": "波特 Usain Bolt",
+    "category": "運動"
+  },
+  {
+    "id": 185,
+    "name": "菲爾普斯 Michael Phelps",
+    "category": "運動"
+  },
+  {
+    "id": 186,
+    "name": "拳王阿里 Muhammad Ali",
+    "category": "運動"
+  },
+  {
+    "id": 187,
+    "name": "泰森 Mike Tyson",
+    "category": "運動"
+  },
+  {
+    "id": 188,
+    "name": "舒馬克 Michael Schumacher",
+    "category": "運動"
+  },
+  {
+    "id": 189,
+    "name": "秦始皇",
+    "category": "歷史人物"
+  },
+  {
+    "id": 190,
+    "name": "孔子",
+    "category": "歷史人物"
+  },
+  {
+    "id": 191,
+    "name": "老子",
+    "category": "歷史人物"
+  },
+  {
+    "id": 192,
+    "name": "李白",
+    "category": "歷史人物"
+  },
+  {
+    "id": 193,
+    "name": "杜甫",
+    "category": "歷史人物"
+  },
+  {
+    "id": 194,
+    "name": "諸葛亮",
+    "category": "歷史人物"
+  },
+  {
+    "id": 195,
+    "name": "曹操",
+    "category": "歷史人物"
+  },
+  {
+    "id": 196,
+    "name": "關羽",
+    "category": "歷史人物"
+  },
+  {
+    "id": 197,
+    "name": "劉備",
+    "category": "歷史人物"
+  },
+  {
+    "id": 198,
+    "name": "岳飛",
+    "category": "歷史人物"
+  },
+  {
+    "id": 199,
+    "name": "武則天",
+    "category": "歷史人物"
+  },
+  {
+    "id": 200,
+    "name": "成吉思汗",
+    "category": "歷史人物"
+  },
+  {
+    "id": 201,
+    "name": "鄭成功",
+    "category": "歷史人物"
+  },
+  {
+    "id": 202,
+    "name": "乾隆",
+    "category": "歷史人物"
+  },
+  {
+    "id": 203,
+    "name": "慈禧太后",
+    "category": "歷史人物"
+  },
+  {
+    "id": 204,
+    "name": "拿破崙 Napoleon",
+    "category": "歷史人物"
+  },
+  {
+    "id": 205,
+    "name": "凱撒 Julius Caesar",
+    "category": "歷史人物"
+  },
+  {
+    "id": 206,
+    "name": "埃及豔后 Cleopatra",
+    "category": "歷史人物"
+  },
+  {
+    "id": 207,
+    "name": "亞歷山大大帝 Alexander the Great",
+    "category": "歷史人物"
+  },
+  {
+    "id": 208,
+    "name": "希特勒 Adolf Hitler",
+    "category": "歷史人物"
+  },
+  {
+    "id": 209,
+    "name": "邱吉爾 Winston Churchill",
+    "category": "歷史人物"
+  },
+  {
+    "id": 210,
+    "name": "林肯 Abraham Lincoln",
+    "category": "歷史人物"
+  },
+  {
+    "id": 211,
+    "name": "華盛頓 George Washington",
+    "category": "歷史人物"
+  },
+  {
+    "id": 212,
+    "name": "甘地 Mahatma Gandhi",
+    "category": "歷史人物"
+  },
+  {
+    "id": 213,
+    "name": "馬丁·路德·金恩 Martin Luther King Jr.",
+    "category": "歷史人物"
+  },
+  {
+    "id": 214,
+    "name": "曼德拉 Nelson Mandela",
+    "category": "歷史人物"
+  },
+  {
+    "id": 215,
+    "name": "德蕾莎修女 Mother Teresa",
+    "category": "歷史人物"
+  },
+  {
+    "id": 216,
+    "name": "伊莉莎白二世 Elizabeth II",
+    "category": "歷史人物"
+  },
+  {
+    "id": 217,
+    "name": "黛安娜王妃 Princess Diana",
+    "category": "歷史人物"
+  },
+  {
+    "id": 218,
+    "name": "聖女貞德 Joan of Arc",
+    "category": "歷史人物"
+  },
+  {
+    "id": 219,
+    "name": "哥倫布 Christopher Columbus",
+    "category": "歷史人物"
+  },
+  {
+    "id": 220,
+    "name": "耶穌 Jesus",
+    "category": "歷史人物"
+  },
+  {
+    "id": 221,
+    "name": "釋迦牟尼",
+    "category": "歷史人物"
+  },
+  {
+    "id": 222,
+    "name": "莎士比亞 William Shakespeare",
+    "category": "歷史人物"
+  },
+  {
+    "id": 223,
+    "name": "達文西 Leonardo da Vinci",
+    "category": "歷史人物"
+  },
+  {
+    "id": 224,
+    "name": "米開朗基羅 Michelangelo",
+    "category": "歷史人物"
+  },
+  {
+    "id": 225,
+    "name": "梵谷 Vincent van Gogh",
+    "category": "歷史人物"
+  },
+  {
+    "id": 226,
+    "name": "畢卡索 Pablo Picasso",
+    "category": "歷史人物"
+  },
+  {
+    "id": 227,
+    "name": "莫札特 Mozart",
+    "category": "歷史人物"
+  },
+  {
+    "id": 228,
+    "name": "貝多芬 Beethoven",
+    "category": "歷史人物"
+  },
+  {
+    "id": 229,
+    "name": "蕭邦 Chopin",
+    "category": "歷史人物"
+  },
+  {
+    "id": 230,
+    "name": "愛因斯坦 Albert Einstein",
+    "category": "科學與政商"
+  },
+  {
+    "id": 231,
+    "name": "牛頓 Isaac Newton",
+    "category": "科學與政商"
+  },
+  {
+    "id": 232,
+    "name": "愛迪生 Thomas Edison",
+    "category": "科學與政商"
+  },
+  {
+    "id": 233,
+    "name": "特斯拉 Nikola Tesla",
+    "category": "科學與政商"
+  },
+  {
+    "id": 234,
+    "name": "居禮夫人 Marie Curie",
+    "category": "科學與政商"
+  },
+  {
+    "id": 235,
+    "name": "達爾文 Charles Darwin",
+    "category": "科學與政商"
+  },
+  {
+    "id": 236,
+    "name": "霍金 Stephen Hawking",
+    "category": "科學與政商"
+  },
+  {
+    "id": 237,
+    "name": "伽利略 Galileo Galilei",
+    "category": "科學與政商"
+  },
+  {
+    "id": 238,
+    "name": "阿姆斯壯 Neil Armstrong",
+    "category": "科學與政商"
+  },
+  {
+    "id": 239,
+    "name": "賈伯斯 Steve Jobs",
+    "category": "科學與政商"
+  },
+  {
+    "id": 240,
+    "name": "比爾·蓋茲 Bill Gates",
+    "category": "科學與政商"
+  },
+  {
+    "id": 241,
+    "name": "馬斯克 Elon Musk",
+    "category": "科學與政商"
+  },
+  {
+    "id": 242,
+    "name": "祖克柏 Mark Zuckerberg",
+    "category": "科學與政商"
+  },
+  {
+    "id": 243,
+    "name": "貝佐斯 Jeff Bezos",
+    "category": "科學與政商"
+  },
+  {
+    "id": 244,
+    "name": "巴菲特 Warren Buffett",
+    "category": "科學與政商"
+  },
+  {
+    "id": 245,
+    "name": "川普 Donald Trump",
+    "category": "科學與政商"
+  },
+  {
+    "id": 246,
+    "name": "歐巴馬 Barack Obama",
+    "category": "科學與政商"
+  },
+  {
+    "id": 247,
+    "name": "拜登 Joe Biden",
+    "category": "科學與政商"
+  },
+  {
+    "id": 248,
+    "name": "普丁 Vladimir Putin",
+    "category": "科學與政商"
+  },
+  {
+    "id": 249,
+    "name": "澤倫斯基 Volodymyr Zelenskyy",
+    "category": "科學與政商"
+  },
+  {
+    "id": 250,
+    "name": "達賴喇嘛 Dalai Lama",
+    "category": "科學與政商"
+  }
+]

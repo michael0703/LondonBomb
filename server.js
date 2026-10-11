@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const TOPTEN_TOPICS = require('./topics.json');
+const WHOAMI_CELEBRITIES = require('./celebrities.json');
 
 const app = express();
 const server = http.createServer(app);
@@ -180,6 +181,10 @@ function getSanitizedRoomState(room, socketId) {
         readyToDeploy: me.readyToDeploy || false
       } : null
     };
+  }
+
+  if (room.gameType === 'whoami') {
+    return getWhoamiRoomState(room, socketId);
   }
 
   const sanitizedPlayers = room.players.map(p => {
@@ -400,7 +405,7 @@ io.on('connection', (socket) => {
   });
 
   // Event: Join Room
-  socket.on('joinRoom', ({ name, roomCode }) => {
+  socket.on('joinRoom', ({ name, roomCode, gameType }) => {
     if (!name || name.trim() === '') {
       socket.emit('errorMsg', '請輸入有效的名字。');
       return;
@@ -415,6 +420,11 @@ io.on('connection', (socket) => {
 
     if (!room) {
       socket.emit('errorMsg', '未找到該房間。');
+      return;
+    }
+
+    if (gameType && room.gameType !== gameType) {
+      socket.emit('errorMsg', '這個房號是其他桌遊的房間。');
       return;
     }
 
@@ -466,6 +476,10 @@ io.on('connection', (socket) => {
       }
     }
     if (!room || room.gameStarted || room.players.length >= 8) return;
+    if (room.gameType === 'whoami') {
+      socket.emit('errorMsg', '名人猜猜我是誰需要真人回答，無法加入 AI 機器人。');
+      return;
+    }
     const player = room.players.find(p => p.id === socket.id);
     if (!player || !player.host) return;
 
@@ -581,6 +595,16 @@ io.on('connection', (socket) => {
         socket.emit('errorMsg', '遊戲需要 4 到 8 名玩家/機器人才能開始。');
         return;
       }
+    } else if (room.gameType === 'whoami') {
+      if (playerCount < 2 || playerCount > 8) {
+        socket.emit('errorMsg', '遊戲需要 2 到 8 名玩家才能開始。');
+        return;
+      }
+    }
+
+    if (room.gameType === 'whoami') {
+      startWhoamiGame(room);
+      return;
     }
 
     if (room.gameType === 'skull') {
@@ -997,6 +1021,10 @@ io.on('connection', (socket) => {
       p.eliminated = false;
     });
 
+    if (room.gameType === 'whoami') {
+      resetWhoamiRoom(room);
+    }
+
     addLog(room, 'system', '房主重設了對局，返回候戰室。');
     broadcastRoomUpdate(room);
   });
@@ -1241,6 +1269,9 @@ io.on('connection', (socket) => {
         } else {
           player.connected = false;
           addLog(room, 'system', `⚠️ ${player.name} 失去連接。`);
+          if (room.gameType === 'whoami') {
+            handleWhoamiDisconnect(room, player);
+          }
           
           const allDisconnected = room.players.every(p => !p.connected);
           if (allDisconnected) {
@@ -2225,6 +2256,290 @@ function triggerTopTenBotsReady(room) {
     }
   });
 }
+
+// ================= WHOAMI (名人猜猜我是誰) GAME ENGINE LOGIC =================
+// Each player draws a hidden celebrity that everyone else can see. Players take
+// turns; the active player keeps asking questions until they guess correctly or
+// give up. Guesses don't count as questions, but a player may only have made
+// (questions asked + 1) guesses in total. Fewest questions wins.
+
+const WHOAMI_ANSWERS = ['yes', 'no', 'unsure'];
+
+function drawWhoamiCelebrity(room) {
+  if (!room.usedCelebrityIds) room.usedCelebrityIds = [];
+  let available = WHOAMI_CELEBRITIES.filter(c => !room.usedCelebrityIds.includes(c.id));
+  if (available.length === 0) {
+    // Only reuse celebrities nobody is currently holding
+    room.usedCelebrityIds = room.players.filter(p => p.celebrity).map(p => p.celebrity.id);
+    available = WHOAMI_CELEBRITIES.filter(c => !room.usedCelebrityIds.includes(c.id));
+  }
+  const chosen = available[Math.floor(Math.random() * available.length)];
+  room.usedCelebrityIds.push(chosen.id);
+  return chosen;
+}
+
+function resetWhoamiPlayer(p) {
+  p.questions = [];
+  p.guesses = [];
+}
+
+function resetWhoamiRoom(room) {
+  room.whoamiTurnOrder = [];
+  room.activePlayerId = null;
+  room.pendingGuess = null;
+  room.players.forEach(p => {
+    p.celebrity = null;
+    p.whoamiStatus = null;
+    resetWhoamiPlayer(p);
+  });
+}
+
+function whoamiGuessesLeft(p) {
+  return p.questions.length + 1 - p.guesses.length;
+}
+
+function getWhoamiRanking(room) {
+  const finishedRank = { solved: 0, gaveup: 1, left: 2 };
+  return room.players
+    .filter(p => p.whoamiStatus in finishedRank)
+    .sort((a, b) => {
+      const byStatus = finishedRank[a.whoamiStatus] - finishedRank[b.whoamiStatus];
+      if (byStatus !== 0) return byStatus;
+      return a.questions.length - b.questions.length;
+    })
+    .map(p => p.id);
+}
+
+function getWhoamiRoomState(room, socketId) {
+  const players = room.players.map(p => {
+    const isSelf = p.id === socketId;
+    const finished = ['solved', 'gaveup', 'left'].includes(p.whoamiStatus);
+    const canSeeCelebrity = !isSelf || finished || room.gameEnded;
+    return {
+      id: p.id,
+      name: p.name,
+      host: p.host,
+      connected: p.connected,
+      isBot: false,
+      status: p.whoamiStatus || 'waiting',
+      celebrity: canSeeCelebrity ? (p.celebrity || null) : null,
+      questions: p.questions || [],
+      guesses: p.guesses || [],
+      questionCount: p.questions ? p.questions.length : 0,
+      guessesLeft: p.questions ? whoamiGuessesLeft(p) : 1
+    };
+  });
+
+  return {
+    roomCode: room.roomCode,
+    gameType: room.gameType,
+    gameStarted: room.gameStarted,
+    gameEnded: room.gameEnded,
+    roundPhase: room.roundPhase,
+    activePlayerId: room.activePlayerId || null,
+    turnOrder: room.whoamiTurnOrder || [],
+    pendingGuess: room.pendingGuess || null,
+    ranking: room.gameEnded ? getWhoamiRanking(room) : [],
+    players,
+    history: room.history,
+    me: players.find(p => p.id === socketId) || null
+  };
+}
+
+function startWhoamiGame(room) {
+  room.gameStarted = true;
+  room.gameEnded = false;
+  room.winnerTeam = null;
+  room.history = [];
+  room.usedCelebrityIds = [];
+  resetWhoamiRoom(room);
+
+  room.players.forEach(p => {
+    p.celebrity = drawWhoamiCelebrity(room);
+    p.whoamiStatus = 'waiting';
+  });
+  room.whoamiTurnOrder = shuffle(room.players.map(p => p.id));
+
+  const orderNames = room.whoamiTurnOrder.map(id => room.players.find(p => p.id === id).name);
+  addLog(room, 'system', '🎭 名人猜猜我是誰開始！每個人都抽到了一位名人，你看得到別人的，卻看不到自己的。');
+  addLog(room, 'system', `猜題順序：${orderNames.join(' ➔ ')}`);
+  advanceWhoamiTurn(room);
+  broadcastRoomUpdate(room);
+}
+
+function advanceWhoamiTurn(room) {
+  room.pendingGuess = null;
+  const next = room.whoamiTurnOrder
+    .map(id => room.players.find(p => p.id === id))
+    .find(p => p && p.whoamiStatus === 'waiting' && p.connected);
+
+  if (!next) {
+    room.activePlayerId = null;
+    room.roundPhase = 'game_over';
+    room.gameEnded = true;
+    addLog(room, 'system', '🏁 所有人都完成了！來看看誰用最少的問題猜出自己是誰。');
+    return;
+  }
+
+  next.whoamiStatus = 'active';
+  room.activePlayerId = next.id;
+  room.roundPhase = 'asking';
+  addLog(room, 'system', `👉 輪到【${next.name}】發問！其他人請誠實回答。`);
+}
+
+function getWhoamiTurnContext(socket, phase) {
+  const room = getRoomBySocket(socket);
+  if (!room || room.gameType !== 'whoami' || !room.gameStarted || room.gameEnded) return null;
+  if (phase && room.roundPhase !== phase) return null;
+  const player = room.players.find(p => p.id === socket.id);
+  const active = room.players.find(p => p.id === room.activePlayerId);
+  if (!player || !active) return null;
+  return { room, player, active };
+}
+
+function handleWhoamiDisconnect(room, player) {
+  if (room.gameEnded || !['waiting', 'active'].includes(player.whoamiStatus)) return;
+  const wasActive = player.whoamiStatus === 'active';
+  player.whoamiStatus = 'left';
+  if (wasActive) {
+    addLog(room, 'system', `${player.name} 在猜題途中離開了，換下一位。`);
+    advanceWhoamiTurn(room);
+  }
+}
+
+io.on('connection', (socket) => {
+  // Event: Active player asks a question
+  socket.on('whoami_ask', ({ text } = {}) => {
+    const ctx = getWhoamiTurnContext(socket, 'asking');
+    if (!ctx) return;
+    const { room, player, active } = ctx;
+    if (player.id !== active.id) {
+      socket.emit('errorMsg', '現在不是你的發問回合。');
+      return;
+    }
+    const question = String(text || '').trim().slice(0, 80);
+    if (!question) {
+      socket.emit('errorMsg', '問題不能是空的。');
+      return;
+    }
+    const last = active.questions[active.questions.length - 1];
+    if (last && last.answers.length === 0) {
+      socket.emit('errorMsg', '請等其他人回答上一題，再問下一題。');
+      return;
+    }
+
+    active.questions.push({ id: active.questions.length + 1, text: question, answers: [] });
+    addLog(room, 'question', `❓ ${active.name} 問第 ${active.questions.length} 題：${question}`);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Other players answer one of the active player's questions
+  socket.on('whoami_answer', ({ questionId, answer, note } = {}) => {
+    const ctx = getWhoamiTurnContext(socket);
+    if (!ctx) return;
+    const { room, player, active } = ctx;
+    if (player.id === active.id) return;
+    if (!WHOAMI_ANSWERS.includes(answer)) return;
+    const question = active.questions.find(q => q.id === questionId);
+    if (!question) return;
+
+    const entry = {
+      playerId: player.id,
+      name: player.name,
+      answer,
+      note: String(note || '').trim().slice(0, 60)
+    };
+    const existing = question.answers.findIndex(a => a.playerId === player.id);
+    if (existing === -1) question.answers.push(entry);
+    else question.answers[existing] = entry;
+
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Active player makes a guess (doesn't count as a question)
+  socket.on('whoami_guess', ({ text } = {}) => {
+    const ctx = getWhoamiTurnContext(socket, 'asking');
+    if (!ctx) return;
+    const { room, player, active } = ctx;
+    if (player.id !== active.id) return;
+    const guess = String(text || '').trim().slice(0, 40);
+    if (!guess) {
+      socket.emit('errorMsg', '請輸入你猜的名人。');
+      return;
+    }
+    if (whoamiGuessesLeft(active) <= 0) {
+      socket.emit('errorMsg', '猜測次數已用完（最多＝已問題數＋1），請再問一題。');
+      return;
+    }
+
+    room.pendingGuess = { text: guess };
+    room.roundPhase = 'judging';
+    addLog(room, 'guess', `🎯 ${active.name} 猜：「${guess}」，請其他人判定！`);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Other players judge the pending guess
+  socket.on('whoami_judge', ({ correct } = {}) => {
+    const ctx = getWhoamiTurnContext(socket, 'judging');
+    if (!ctx) return;
+    const { room, player, active } = ctx;
+    if (player.id === active.id || !room.pendingGuess) return;
+
+    const isCorrect = correct === true;
+    active.guesses.push({
+      text: room.pendingGuess.text,
+      correct: isCorrect,
+      judgeName: player.name,
+      afterQuestions: active.questions.length
+    });
+    room.pendingGuess = null;
+
+    if (isCorrect) {
+      active.whoamiStatus = 'solved';
+      addLog(room, 'system', `🎉 ${active.name} 猜對了！是【${active.celebrity.name}】，共問了 ${active.questions.length} 題。（${player.name} 判定）`);
+      advanceWhoamiTurn(room);
+    } else {
+      room.roundPhase = 'asking';
+      addLog(room, 'system', `❌ 猜錯了！（${player.name} 判定）${active.name} 繼續發問。`);
+    }
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Active player gives up
+  socket.on('whoami_giveUp', () => {
+    const ctx = getWhoamiTurnContext(socket);
+    if (!ctx) return;
+    const { room, player, active } = ctx;
+    if (player.id !== active.id) return;
+
+    active.whoamiStatus = 'gaveup';
+    addLog(room, 'system', `🏳️ ${active.name} 放棄了，答案是【${active.celebrity.name}】。`);
+    advanceWhoamiTurn(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host redraws a player's celebrity (e.g. nobody knows who it is)
+  socket.on('whoami_redraw', ({ targetPlayerId } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'whoami' || !room.gameStarted || room.gameEnded) return;
+    const host = room.players.find(p => p.id === socket.id);
+    if (!host || !host.host) {
+      socket.emit('errorMsg', '只有房主可以換牌。');
+      return;
+    }
+    const target = room.players.find(p => p.id === targetPlayerId);
+    if (!target || !['waiting', 'active'].includes(target.whoamiStatus)) return;
+
+    target.celebrity = drawWhoamiCelebrity(room);
+    resetWhoamiPlayer(target);
+    if (target.id === room.activePlayerId) {
+      room.pendingGuess = null;
+      room.roundPhase = 'asking';
+    }
+    addLog(room, 'system', `🔄 房主幫 ${target.name} 換了一張名人牌，題數重新計算。`);
+    broadcastRoomUpdate(room);
+  });
+});
 
 // Start the server
 server.listen(PORT, () => {
