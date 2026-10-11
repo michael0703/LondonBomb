@@ -1187,6 +1187,9 @@ body {
 .qa-answer .ans-no { color: var(--color-bad-red); }
 .qa-answer .ans-unsure { color: var(--color-text-muted); }
 .qa-answer .note { color: var(--color-text-light); }
+.qa-answer .ans-text { color: var(--color-gold); }
+
+.answer-or-hint { font-size: 0.8rem; color: var(--color-text-muted); }
 .qa-waiting { color: var(--color-text-muted); font-style: italic; font-size: 0.8rem; }
 
 .quick-answer-row {

@@ -2336,7 +2336,7 @@ function triggerTopTenBotsReady(room) {
 // give up. Guesses don't count as questions, but a player may only have made
 // (questions asked + 1) guesses in total. Fewest questions wins.
 
-const WHOAMI_ANSWERS = ['yes', 'no', 'unsure'];
+const WHOAMI_ANSWERS = ['yes', 'no', 'unsure', 'text'];
 
 function drawWhoamiCelebrity(room) {
   if (!room.usedCelebrityIds) room.usedCelebrityIds = [];
@@ -2516,12 +2516,14 @@ io.on('connection', (socket) => {
     if (!WHOAMI_ANSWERS.includes(answer)) return;
     const question = active.questions.find(q => q.id === questionId);
     if (!question) return;
+    const cleanNote = String(note || '').trim().slice(0, 60);
+    if (answer === 'text' && !cleanNote) return;
 
     const entry = {
       playerId: player.id,
       name: player.name,
       answer,
-      note: String(note || '').trim().slice(0, 60)
+      note: cleanNote
     };
     const existing = question.answers.findIndex(a => a.playerId === player.id);
     if (existing === -1) question.answers.push(entry);

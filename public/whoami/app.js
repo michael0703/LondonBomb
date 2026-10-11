@@ -52,7 +52,7 @@ const STATUS_LABELS = {
     left: '已離開'
 };
 
-const ANSWER_LABELS = { yes: '是', no: '不是', unsure: '不確定' };
+const ANSWER_LABELS = { yes: '是', no: '不是', unsure: '不確定', text: '' };
 
 let latestState = null;
 let selectedPlayerId = null;
@@ -213,8 +213,12 @@ function renderQaList(state) {
         q.answers.forEach(a => {
             const span = el('span', 'qa-answer');
             span.appendChild(el('span', null, `${a.name}：`));
-            span.appendChild(el('span', `ans ans-${a.answer}`, ANSWER_LABELS[a.answer]));
-            if (a.note) span.appendChild(el('span', 'note', `（${a.note}）`));
+            if (a.answer === 'text') {
+                span.appendChild(el('span', 'ans ans-text', a.note));
+            } else {
+                span.appendChild(el('span', `ans ans-${a.answer}`, ANSWER_LABELS[a.answer]));
+                if (a.note) span.appendChild(el('span', 'note', `（${a.note}）`));
+            }
             answers.appendChild(span);
         });
         item.appendChild(answers);
@@ -421,17 +425,27 @@ function initEvents() {
         }
     });
 
-    document.querySelectorAll('#panel-answer [data-answer]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            AudioSynth.playTick();
-            socket.emit('whoami_answer', {
-                questionId: Number($('panel-answer').dataset.questionId),
-                answer: btn.dataset.answer,
-                note: $('input-note').value.trim()
-            });
-            $('input-note').value = '';
+    function sendAnswer(answer) {
+        const note = $('input-note').value.trim();
+        if (answer === 'text' && !note) {
+            $('input-note').focus();
+            return;
+        }
+        AudioSynth.playTick();
+        socket.emit('whoami_answer', {
+            questionId: Number($('panel-answer').dataset.questionId),
+            answer,
+            note
         });
+        $('input-note').value = '';
+    }
+
+    document.querySelectorAll('#panel-answer [data-answer]').forEach(btn => {
+        btn.addEventListener('click', () => sendAnswer(btn.dataset.answer));
     });
+    // Free-text answer for open questions ("演過什麼電影？")
+    $('btn-answer-text').addEventListener('click', () => sendAnswer('text'));
+    $('input-note').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) sendAnswer('text'); });
 
     $('btn-judge-correct').addEventListener('click', () => {
         AudioSynth.playTick();
