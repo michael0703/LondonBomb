@@ -134,6 +134,16 @@ document.addEventListener('DOMContentLoaded', () => {
         c.addEventListener('mouseenter', () => {
             PortalSynth.playValve();
         });
+
+        // Keyboard access: cards are divs, so make them focusable and Enter-activatable
+        c.setAttribute('tabindex', '0');
+        c.setAttribute('role', 'link');
+        c.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                c.click();
+            }
+        });
     });
     
     lockedCards.forEach(c => {

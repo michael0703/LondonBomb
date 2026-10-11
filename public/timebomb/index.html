@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>時間炸彈 - 拆除倫敦危機</title>
+    <title>驚爆倫敦 | 桌遊入口</title>
     <!-- Google Fonts for Steampunk / Victorian feel -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,7 +17,7 @@
     <div class="container">
         <!-- LOBBY VIEW (Join / Create) -->
         <div id="lobby-view" class="view panel active">
-            <h1 class="game-title">時間炸彈</h1>
+            <h1 class="game-title">驚爆倫敦</h1>
             <h2 class="game-subtitle">倫敦大危機</h2>
             
             <div class="form-group">
@@ -42,6 +42,10 @@
                 </div>
             </div>
             
+            <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass btn-back-portal">
+                <span>⬅️ 返回桌遊入口</span>
+            </button>
+
             <div class="rules-teaser">
                 <h3>探員指令</h3>
                 <p>倫敦正面臨著一顆滴答作響的炸彈的威脅。大偵探小隊需要找出所有的「成功引線」來解除危機；而莫里亞蒂的同夥則隱藏著真實的身份，散布謊言，試圖引誘大家剪斷「引爆裝置」。請小心發言，保持懷疑。</p>
@@ -273,6 +277,7 @@
 
     <!-- Socket.io client script -->
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/shared/session.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

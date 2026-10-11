@@ -1,6 +1,8 @@
 // Client-side interactions for 名人猜猜我是誰 (Who Am I)
 
-const socket = io();
+const socket = BoardgameSession.connect('whoami');
+BoardgameSession.initLoginForm({ nameInputId: 'input-nickname', roomInputId: 'input-room-code' });
+BoardgameSession.mountInviteButton('display-room-code');
 
 // AUDIO SYNTHESIS ENGINE (Web Audio API)
 const AudioSynth = {
@@ -445,7 +447,7 @@ function initEvents() {
         socket.emit('restartGame');
     });
     $('btn-exit-lobby').addEventListener('click', () => {
-        window.location.href = '/';
+        BoardgameSession.exitToPortal();
     });
 }
 

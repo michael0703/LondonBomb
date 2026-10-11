@@ -254,6 +254,177 @@ function addLog(room, type, text) {
   room.history.push(logEntry);
 }
 
+// ================= SESSION / RECONNECT =================
+// Each browser tab sends a random token (socket.io auth) that survives page
+// refreshes. When a socket connects with a token that owns a seat, the seat's
+// old socket id is swapped for the new one everywhere in the room state, so
+// game logic keyed by player id keeps working unchanged.
+
+const LOBBY_RECONNECT_GRACE_MS = 20 * 1000;
+const WHOAMI_TURN_RECONNECT_GRACE_MS = 60 * 1000;
+const HOST_RECONNECT_GRACE_MS = 60 * 1000;
+const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000;
+
+function getSessionToken(socket) {
+  const token = socket.handshake.auth && socket.handshake.auth.token;
+  return typeof token === 'string' && token.length >= 8 ? token : null;
+}
+
+// A tab can only hold one seat at a time
+function claimSessionToken(socket, player) {
+  const token = getSessionToken(socket);
+  if (!token) return;
+  for (const r of rooms.values()) {
+    r.players.forEach(p => { if (p.token === token) p.token = null; });
+  }
+  player.token = token;
+}
+
+function replaceIdDeep(value, oldId, newId, seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return;
+  // Only walk plain data; skip timers and other class instances
+  if (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype) return;
+  seen.add(value);
+  for (const key of Object.keys(value)) {
+    if (value[key] === oldId) value[key] = newId;
+    else replaceIdDeep(value[key], oldId, newId, seen);
+  }
+}
+
+function resumeSession(socket) {
+  const token = getSessionToken(socket);
+  const gameType = socket.handshake.auth && socket.handshake.auth.gameType;
+  if (!token) return;
+
+  for (const room of rooms.values()) {
+    const player = room.players.find(p => p.token === token);
+    if (!player || room.gameType !== gameType) continue;
+
+    const oldId = player.id;
+    replaceIdDeep(room, oldId, socket.id);
+    player.connected = true;
+    clearTimeout(player.disconnectTimer);
+    clearTimeout(player.hostTransferTimer);
+    player.disconnectTimer = null;
+    player.hostTransferTimer = null;
+    clearTimeout(room.cleanupTimer);
+    room.cleanupTimer = null;
+    socket.join(room.roomCode);
+
+    // Same token still attached to an older socket (e.g. duplicated tab): drop it
+    const staleSocket = io.sockets.sockets.get(oldId);
+    if (staleSocket) staleSocket.disconnect(true);
+
+    // Take over hosting only if the host is gone for good (not just mid-refresh)
+    const currentHost = room.players.find(p => p.host);
+    if (!currentHost || (!currentHost.connected && !currentHost.hostTransferTimer)) {
+      if (currentHost) currentHost.host = false;
+      player.host = true;
+    }
+
+    if (room.gameStarted) addLog(room, 'system', `🔌 ${player.name} 重新連線了。`);
+    broadcastRoomUpdate(room);
+    return;
+  }
+}
+
+function deleteRoom(room) {
+  if (rooms.get(room.roomCode) !== room) return;
+  if (room.declarationIntervalId) clearInterval(room.declarationIntervalId);
+  clearTimeout(room.cleanupTimer);
+  room.players.forEach(p => {
+    clearTimeout(p.disconnectTimer);
+    clearTimeout(p.hostTransferTimer);
+  });
+  rooms.delete(room.roomCode);
+  console.log(`Room ${room.roomCode} deleted.`);
+}
+
+function removeLobbyPlayer(room, player) {
+  const idx = room.players.indexOf(player);
+  if (idx === -1) return;
+  clearTimeout(player.disconnectTimer);
+  room.players.splice(idx, 1);
+  addLog(room, 'system', `${player.name} 離開了房間。`);
+
+  if (room.players.every(p => p.isBot)) {
+    deleteRoom(room);
+    return;
+  }
+  if (player.host) {
+    const nextHost = room.players.find(p => !p.isBot && p.connected) || room.players.find(p => !p.isBot);
+    nextHost.host = true;
+    addLog(room, 'system', `${nextHost.name} 現在是新的房主。`);
+  }
+  broadcastRoomUpdate(room);
+}
+
+function transferHost(room, player) {
+  const nextHost = room.players.find(p => p.connected && !p.isBot && p !== player);
+  if (!nextHost) return;
+  nextHost.host = true;
+  player.host = false;
+  addLog(room, 'system', `${nextHost.name} 現在是新的房主。`);
+}
+
+function handlePlayerDeparture(room, player, permanent) {
+  if (!player || (!player.connected && !permanent)) return;
+  player.connected = false;
+  if (permanent) player.token = null;
+
+  if (!room.gameStarted) {
+    if (permanent) {
+      removeLobbyPlayer(room, player);
+    } else {
+      player.disconnectTimer = setTimeout(() => {
+        if (!room.gameStarted && !player.connected) removeLobbyPlayer(room, player);
+      }, LOBBY_RECONNECT_GRACE_MS);
+      broadcastRoomUpdate(room);
+    }
+    return;
+  }
+
+  addLog(room, 'system', permanent ? `🚪 ${player.name} 離開了遊戲。` : `⚠️ ${player.name} 失去連接，等待重新連線...`);
+
+  if (room.gameType === 'whoami') {
+    if (permanent) {
+      handleWhoamiDisconnect(room, player);
+    } else if (player.whoamiStatus === 'active') {
+      // Give the asker a minute to come back before skipping their turn
+      player.disconnectTimer = setTimeout(() => {
+        if (player.connected || rooms.get(room.roomCode) !== room) return;
+        handleWhoamiDisconnect(room, player);
+        broadcastRoomUpdate(room);
+      }, WHOAMI_TURN_RECONNECT_GRACE_MS);
+    }
+  }
+
+  if (player.host) {
+    if (permanent) {
+      transferHost(room, player);
+    } else {
+      // A refresh shouldn't cost the host their role; hand it over only if they stay away
+      player.hostTransferTimer = setTimeout(() => {
+        player.hostTransferTimer = null;
+        if (player.connected || !player.host || rooms.get(room.roomCode) !== room) return;
+        transferHost(room, player);
+        broadcastRoomUpdate(room);
+      }, HOST_RECONNECT_GRACE_MS);
+    }
+  }
+
+  const humans = room.players.filter(p => !p.isBot);
+  if (humans.every(p => !p.connected)) {
+    if (humans.every(p => !p.token)) {
+      deleteRoom(room);
+      return;
+    }
+    clearTimeout(room.cleanupTimer);
+    room.cleanupTimer = setTimeout(() => deleteRoom(room), EMPTY_ROOM_TTL_MS);
+  }
+  broadcastRoomUpdate(room);
+}
+
 // Transition helpers for Declaration and Cutting phases
 function startDeclarationPhase(room) {
   room.roundPhase = 'declaring';
@@ -348,6 +519,7 @@ function proceedToNextRound(room) {
 // Socket Connection handling
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
+  resumeSession(socket);
 
   // Event: Create Room
   socket.on('createRoom', ({ name, gameType }) => {
@@ -397,6 +569,7 @@ io.on('connection', (socket) => {
     };
 
     rooms.set(code, room);
+    claimSessionToken(socket, room.players[0]);
     socket.join(code);
     
     addLog(room, 'system', `${name.trim()} 建立了遊戲房間 ${code}。`);
@@ -460,6 +633,7 @@ io.on('connection', (socket) => {
       successDeclared: 0,
       bombDeclared: 0
     });
+    claimSessionToken(socket, room.players[room.players.length - 1]);
 
     socket.join(code);
     addLog(room, 'system', `${name.trim()} 加入了房間。`);
@@ -468,13 +642,7 @@ io.on('connection', (socket) => {
 
   // Event: Add AI Bot
   socket.on('addBot', () => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
     if (!room || room.gameStarted || room.players.length >= 8) return;
     if (room.gameType === 'whoami') {
       socket.emit('errorMsg', '名人猜猜我是誰需要真人回答，無法加入 AI 機器人。');
@@ -509,13 +677,7 @@ io.on('connection', (socket) => {
 
   // Event: Kick Player (called by Host in waiting room lobby)
   socket.on('kickPlayer', ({ targetId }) => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
 
     if (!room) {
       socket.emit('errorMsg', '房間未找到。');
@@ -560,13 +722,7 @@ io.on('connection', (socket) => {
 
   // Event: Start Game
   socket.on('startGame', () => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
 
     if (!room) {
       socket.emit('errorMsg', '房間未找到。');
@@ -708,13 +864,7 @@ io.on('connection', (socket) => {
 
   // Event: Confirm Role Reveal (ceremony button)
   socket.on('confirmRoleReveal', () => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
     if (!room || !room.gameStarted || room.gameEnded) return;
 
     const player = room.players.find(p => p.id === socket.id);
@@ -726,13 +876,7 @@ io.on('connection', (socket) => {
 
   // Event: Deploy Cards
   socket.on('deployCards', () => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
 
     if (!room || !room.gameStarted || room.gameEnded) return;
 
@@ -760,13 +904,7 @@ io.on('connection', (socket) => {
 
   // Event: Declare Hand (adjust numbers)
   socket.on('declareHand', ({ successDeclared }) => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
 
     if (!room || !room.gameStarted || room.gameEnded || room.roundPhase !== 'declaring') return;
 
@@ -788,13 +926,7 @@ io.on('connection', (socket) => {
 
   // Event: Confirm Declaration (ready to start cutting)
   socket.on('confirmDeclaration', () => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
 
     if (!room || !room.gameStarted || room.gameEnded || room.roundPhase !== 'declaring') return;
 
@@ -815,13 +947,7 @@ io.on('connection', (socket) => {
 
   // Event: Make Cut
   socket.on('makeCut', ({ targetPlayerId, cardIndex }) => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
 
     if (!room || !room.gameStarted || room.gameEnded) return;
 
@@ -925,13 +1051,7 @@ io.on('connection', (socket) => {
 
   // Event: Start Next Round (called by Host during round_ending phase)
   socket.on('startNextRound', () => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
 
     if (!room || !room.gameStarted || room.gameEnded || room.roundPhase !== 'round_ending') return;
 
@@ -946,13 +1066,7 @@ io.on('connection', (socket) => {
 
   // Event: Reveal Game Summary (called by Host to pop up modal for everyone)
   socket.on('revealSummary', () => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
 
     if (!room || !room.gameEnded || room.summaryRevealed) return;
 
@@ -969,13 +1083,7 @@ io.on('connection', (socket) => {
 
   // Event: Restart Game (called by Host to return to waiting room)
   socket.on('restartGame', () => {
-    let room = null;
-    for (const r of rooms.values()) {
-      if (r.players.some(p => p.id === socket.id)) {
-        room = r;
-        break;
-      }
-    }
+    let room = getRoomBySocket(socket);
 
     if (!room) return;
 
@@ -1242,57 +1350,22 @@ io.on('connection', (socket) => {
     triggerTopTenBotAction(room);
   });
 
-  // Event: Disconnect
+  // Event: Leave room on purpose (exit buttons) — no reconnect grace period
+  socket.on('leaveRoom', (ack) => {
+    const room = getRoomBySocket(socket);
+    if (room) {
+      socket.leave(room.roomCode);
+      handlePlayerDeparture(room, room.players.find(p => p.id === socket.id), true);
+    }
+    if (typeof ack === 'function') ack();
+  });
+
+  // Event: Disconnect (refresh, phone lock, network drop) — seat is kept for reconnecting
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
-    for (const [code, room] of rooms.entries()) {
-      const playerIndex = room.players.findIndex(p => p.id === socket.id);
-      
-      if (playerIndex !== -1) {
-        const player = room.players[playerIndex];
-        
-        if (!room.gameStarted) {
-          room.players.splice(playerIndex, 1);
-          addLog(room, 'system', `${player.name} 離開了房間。`);
-          
-          if (room.players.length === 0) {
-            if (room.declarationIntervalId) clearInterval(room.declarationIntervalId);
-            rooms.delete(code);
-            console.log(`Room ${code} deleted (empty).`);
-          } else {
-            if (player.host) {
-              room.players[0].host = true;
-              addLog(room, 'system', `${room.players[0].name} 現在是新的房主。`);
-            }
-            broadcastRoomUpdate(room);
-          }
-        } else {
-          player.connected = false;
-          addLog(room, 'system', `⚠️ ${player.name} 失去連接。`);
-          if (room.gameType === 'whoami') {
-            handleWhoamiDisconnect(room, player);
-          }
-          
-          const allDisconnected = room.players.every(p => !p.connected);
-          if (allDisconnected) {
-            if (room.declarationIntervalId) clearInterval(room.declarationIntervalId);
-            rooms.delete(code);
-            console.log(`Room ${code} deleted (all players disconnected).`);
-          } else {
-            if (player.host) {
-              const nextActive = room.players.find(p => p.connected && !p.isBot);
-              if (nextActive) {
-                nextActive.host = true;
-                player.host = false;
-                addLog(room, 'system', `${nextActive.name} 現在是新的房主。`);
-              }
-            }
-            broadcastRoomUpdate(room);
-          }
-        }
-        break;
-      }
-    }
+    const room = getRoomBySocket(socket);
+    if (!room) return;
+    handlePlayerDeparture(room, room.players.find(p => p.id === socket.id), false);
   });
 });
 
@@ -2374,6 +2447,7 @@ function advanceWhoamiTurn(room) {
     .find(p => p && p.whoamiStatus === 'waiting' && p.connected);
 
   if (!next) {
+    room.players.forEach(p => { if (p.whoamiStatus === 'waiting') p.whoamiStatus = 'left'; });
     room.activePlayerId = null;
     room.roundPhase = 'game_over';
     room.gameEnded = true;

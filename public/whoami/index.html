@@ -37,7 +37,7 @@
                 </button>
             </div>
 
-            <button onclick="window.location.href='/'" class="btn btn-brass" style="margin: 15px auto 0; width: 100%; max-width: 320px;">
+            <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="margin: 15px auto 0; width: 100%; max-width: 320px;">
                 <span>⬅️ 返回桌遊入口</span>
             </button>
         </div>
@@ -50,7 +50,7 @@
                     <span class="label">當前房號</span>
                     <span id="display-room-code" class="value">----</span>
                 </div>
-                <button onclick="window.location.href='/'" class="btn btn-brass" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">
+                <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">
                     <span>🚪 離開大廳</span>
                 </button>
             </div>
@@ -107,7 +107,7 @@
                     <div id="display-progress" class="dash-value">0 / 0</div>
                 </div>
                 <div class="dash-item exit-dash">
-                    <button onclick="window.location.href='/'" class="btn btn-brass" style="padding: 6px 12px; font-size: 0.8rem; height: 42px; width: 100px;">
+                    <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="padding: 6px 12px; font-size: 0.8rem; height: 42px; width: 100px;">
                         <span>🚪 離開</span>
                     </button>
                 </div>
@@ -202,6 +202,7 @@
     <div id="error-toast" class="error-toast">錯誤提示資訊</div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/shared/session.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

@@ -1,6 +1,8 @@
 // Time Bomb - Client App Logic
 
-const socket = io();
+const socket = BoardgameSession.connect('timebomb');
+BoardgameSession.initLoginForm({ nameInputId: 'player-name', roomInputId: 'room-code-input' });
+BoardgameSession.mountInviteButton('room-code-text');
 
 // STATE
 let currentRoomCode = null;
@@ -284,7 +286,7 @@ function onJoinRoom() {
     }
     currentName = name;
     currentRoomCode = code.toUpperCase();
-    socket.emit('joinRoom', { name, roomCode: currentRoomCode });
+    socket.emit('joinRoom', { name, roomCode: currentRoomCode, gameType: 'timebomb' });
 }
 
 function onStartGame() {
@@ -323,7 +325,7 @@ function onRestart() {
 
 function onExitLobby() {
     AudioSynth.playTick();
-    window.location.href = '/';
+    BoardgameSession.exitToPortal();
 }
 
 function onViewBoard() {

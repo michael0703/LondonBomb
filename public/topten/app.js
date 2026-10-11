@@ -1,6 +1,8 @@
 // Client-side interactions for TopTen (天才猜心王)
 
-const socket = io();
+const socket = BoardgameSession.connect('topten');
+BoardgameSession.initLoginForm({ nameInputId: 'input-nickname', roomInputId: 'input-room-code' });
+BoardgameSession.mountInviteButton('display-room-code');
 
 // AUDIO SYNTHESIS ENGINE (Web Audio API)
 const AudioSynth = {
@@ -624,7 +626,7 @@ function initSocketAndEvents() {
             showError('房號必須是 4 碼！');
             return;
         }
-        socket.emit('joinRoom', { name: nickname, roomCode: code });
+        socket.emit('joinRoom', { name: nickname, roomCode: code, gameType: 'topten' });
     });
 
     buttons.addBot.addEventListener('click', () => {
@@ -705,7 +707,7 @@ function initSocketAndEvents() {
 
     displays.btnExitLobby.addEventListener('click', () => {
         AudioSynth.playTick();
-        window.location.href = '/';
+        BoardgameSession.exitToPortal();
     });
 }
 

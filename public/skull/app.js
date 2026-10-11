@@ -1,6 +1,8 @@
 // Client-side interactions for Skull (骷髏牌)
 
-const socket = io();
+const socket = BoardgameSession.connect('skull');
+BoardgameSession.initLoginForm({ nameInputId: 'input-nickname', roomInputId: 'input-room-code' });
+BoardgameSession.mountInviteButton('display-room-code');
 
 // AUDIO SYNTHESIS ENGINE (Web Audio API)
 const AudioSynth = {
@@ -225,7 +227,7 @@ function setupEventListeners() {
             showError('請填寫暱稱及4字房號！');
             return;
         }
-        socket.emit('joinRoom', { name: nickname, roomCode: code });
+        socket.emit('joinRoom', { name: nickname, roomCode: code, gameType: 'skull' });
     });
 
     buttons.addBot.addEventListener('click', () => {
@@ -314,7 +316,7 @@ function setupEventListeners() {
 
     buttons.exitLobby.addEventListener('click', () => {
         AudioSynth.playTick();
-        window.location.href = '/';
+        BoardgameSession.exitToPortal();
     });
 
     buttons.closeLostToast.addEventListener('click', () => {
@@ -724,7 +726,11 @@ function renderGameBoard(state, me) {
         displays.placingHand.innerHTML = '';
         
         const isMyTurn = state.activePlayerId === socket.id;
-        
+        const activePlayer = state.players.find(p => p.id === state.activePlayerId);
+        displays.panelPlacing.querySelector('.control-hint').textContent = isMyTurn
+            ? '你的回合：選擇一張手牌出在個人牌堆，或發起競標挑戰！'
+            : `等待 ${activePlayer ? activePlayer.name : '其他玩家'} 出牌中...`;
+
         // Show bid challenge button only if everyone has played at least 1 card
         const everyonePlayedOne = state.players.filter(p => !p.eliminated).every(p => p.playedCardsCount >= 1);
         
@@ -908,7 +914,7 @@ socket.on('errorMsg', (msg) => {
 
 socket.on('kicked', () => {
     alert('你已被房主剔除出房間。');
-    window.location.href = '/';
+    BoardgameSession.exitToPortal();
 });
 
 // Prompt player to discard a card secretly when self-exploded
