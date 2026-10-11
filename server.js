@@ -2514,8 +2514,9 @@ io.on('connection', (socket) => {
     const { room, player, active } = ctx;
     if (player.id === active.id) return;
     if (!WHOAMI_ANSWERS.includes(answer)) return;
-    const question = active.questions.find(q => q.id === questionId);
-    if (!question) return;
+    // Only the latest question is open for answers
+    const question = active.questions[active.questions.length - 1];
+    if (!question || question.id !== questionId) return;
     const cleanNote = String(note || '').trim().slice(0, 60);
     if (answer === 'text' && !cleanNote) return;
 

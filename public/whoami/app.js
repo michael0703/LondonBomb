@@ -57,6 +57,7 @@ const ANSWER_LABELS = { yes: '是', no: '不是', unsure: '不確定', text: '' 
 let latestState = null;
 let selectedPlayerId = null;
 let lastActivePlayerId = null;
+const skippedQuestions = new Set(); // `${activeId}:${questionId}` the player chose not to answer
 let lastSoundKey = null;
 
 function switchView(name) {
@@ -135,6 +136,9 @@ function renderPlayers(state, me) {
         const p = state.players.find(pl => pl.id === id);
         if (!p) return;
         const card = el('div', 'celeb-card');
+        // While the game runs, only the asker's card matters; queued players are shown compactly
+        const collapsed = !state.gameEnded && p.status === 'waiting';
+        if (collapsed) card.classList.add('collapsed');
         if (p.id === socket.id) card.classList.add('is-me');
         if (p.id === state.activePlayerId) card.classList.add('is-active');
         if (p.id === selectedPlayerId) card.classList.add('selected');
@@ -145,13 +149,18 @@ function renderPlayers(state, me) {
         line.appendChild(el('span', `status-badge status-${p.status}`, STATUS_LABELS[p.status] || p.status));
         card.appendChild(line);
 
+        if (collapsed) {
+            grid.appendChild(card);
+            return;
+        }
+
         card.appendChild(el('div', 'celeb-name', p.celebrity ? p.celebrity.name : '❓ ？？？'));
 
         let meta = `${p.questionCount} 題`;
         if (p.celebrity && p.id !== socket.id) meta += `｜${p.celebrity.category}`;
         card.appendChild(el('div', 'celeb-meta', meta));
 
-        if (me && me.host && ['waiting', 'active'].includes(p.status)) {
+        if (me && me.host && p.status === 'active') {
             const redraw = el('button', 'btn btn-brass btn-small');
             redraw.appendChild(el('span', null, '🔄 換牌'));
             redraw.title = '大家都不認識這位名人時使用（題數會重新計算）';
@@ -281,7 +290,11 @@ function renderControls(state, me, active) {
         return `🎯 ${active.name} 猜「${state.pendingGuess.text}」，請判定對錯！`;
     }
 
-    const unanswered = active.questions.find(q => !q.answers.some(a => a.playerId === me.id));
+    // Only the latest question can be answered; older ones you skipped are left to the others
+    const unanswered = lastQuestion
+        && !lastQuestion.answers.some(a => a.playerId === me.id)
+        && !skippedQuestions.has(`${active.id}:${lastQuestion.id}`)
+        ? lastQuestion : null;
     if (unanswered) {
         $('panel-answer').classList.add('active');
         $('panel-answer').dataset.questionId = unanswered.id;
@@ -445,6 +458,12 @@ function initEvents() {
     });
     // Free-text answer for open questions ("演過什麼電影？")
     $('btn-answer-text').addEventListener('click', () => sendAnswer('text'));
+    $('btn-answer-skip').addEventListener('click', () => {
+        AudioSynth.playTick();
+        skippedQuestions.add(`${latestState.activePlayerId}:${$('panel-answer').dataset.questionId}`);
+        $('input-note').value = '';
+        renderGameBoard(latestState);
+    });
     $('input-note').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) sendAnswer('text'); });
 
     $('btn-judge-correct').addEventListener('click', () => {

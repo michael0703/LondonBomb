@@ -1083,6 +1083,7 @@ body {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 10px;
+    grid-auto-flow: dense;
     overflow-y: auto;
     max-height: 360px;
 }
@@ -1104,6 +1105,8 @@ body {
 .celeb-card.is-active { border-color: var(--color-success-green); background: #eef7f5; }
 .celeb-card.is-me .celeb-name { color: var(--color-text-muted); }
 .celeb-card.disconnected { opacity: 0.55; }
+.celeb-card.is-active { grid-column: 1 / -1; }
+.celeb-card.collapsed { padding: 6px 10px; }
 
 .celeb-card .player-line {
     display: flex;
