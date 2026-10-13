@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const TOPTEN_TOPICS = require('./topics.json');
 const WHOAMI_CELEBRITIES = require('./celebrities.json');
+const UNDERCOVER_WORDS = require('./undercover-words.json');
 
 const app = express();
 const server = http.createServer(app);
@@ -185,6 +186,10 @@ function getSanitizedRoomState(room, socketId) {
 
   if (room.gameType === 'whoami') {
     return getWhoamiRoomState(room, socketId);
+  }
+
+  if (room.gameType === 'undercover') {
+    return getUndercoverRoomState(room, socketId);
   }
 
   const sanitizedPlayers = room.players.map(p => {
@@ -385,6 +390,10 @@ function handlePlayerDeparture(room, player, permanent) {
   }
 
   addLog(room, 'system', permanent ? `🚪 ${player.name} 離開了遊戲。` : `⚠️ ${player.name} 失去連接，等待重新連線...`);
+
+  if (room.gameType === 'undercover' && permanent) {
+    handleUndercoverDeparture(room, player);
+  }
 
   if (room.gameType === 'whoami') {
     if (permanent) {
@@ -606,8 +615,9 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (room.players.length >= 8) {
-      socket.emit('errorMsg', '房間人數已滿（最多8人）。');
+    const maxPlayers = room.gameType === 'undercover' ? UNDERCOVER_MAX_PLAYERS : 8;
+    if (room.players.length >= maxPlayers) {
+      socket.emit('errorMsg', `房間人數已滿（最多${maxPlayers}人）。`);
       return;
     }
 
@@ -646,6 +656,10 @@ io.on('connection', (socket) => {
     if (!room || room.gameStarted || room.players.length >= 8) return;
     if (room.gameType === 'whoami') {
       socket.emit('errorMsg', '名人猜猜我是誰需要真人回答，無法加入 AI 機器人。');
+      return;
+    }
+    if (room.gameType === 'undercover') {
+      socket.emit('errorMsg', '誰是臥底需要真人描述，無法加入 AI 機器人。');
       return;
     }
     const player = room.players.find(p => p.id === socket.id);
@@ -760,6 +774,16 @@ io.on('connection', (socket) => {
 
     if (room.gameType === 'whoami') {
       startWhoamiGame(room);
+      return;
+    }
+
+    if (room.gameType === 'undercover') {
+      const setupError = undercoverSetupError(getUndercoverSetup(room));
+      if (setupError) {
+        socket.emit('errorMsg', setupError);
+        return;
+      }
+      startUndercoverGame(room);
       return;
     }
 
@@ -1131,6 +1155,9 @@ io.on('connection', (socket) => {
 
     if (room.gameType === 'whoami') {
       resetWhoamiRoom(room);
+    }
+    if (room.gameType === 'undercover') {
+      resetUndercoverRoom(room);
     }
 
     addLog(room, 'system', '房主重設了對局，返回候戰室。');
@@ -2614,6 +2641,324 @@ io.on('connection', (socket) => {
       room.roundPhase = 'asking';
     }
     addLog(room, 'system', `🔄 房主幫 ${target.name} 換了一張名人牌，題數重新計算。`);
+    broadcastRoomUpdate(room);
+  });
+});
+
+// ================= UNDERCOVER (誰是臥底) GAME ENGINE LOGIC =================
+// Civilians share one word, undercovers get a similar word, and blanks get no
+// word at all. Nobody is told their role (blanks can tell from the empty card).
+// Players describe their word out loud in turn, then vote someone out. The
+// civilians win once every undercover/blank is out; the undercover side wins
+// when the civilians no longer outnumber them.
+
+const UNDERCOVER_MIN_PLAYERS = 4;
+const UNDERCOVER_MAX_PLAYERS = 10;
+const UNDERCOVER_ROLE_NAMES = { civilian: '平民', undercover: '臥底', blank: '白板' };
+
+function defaultUndercoverCount(playerCount) {
+  return playerCount >= 7 ? 2 : 1;
+}
+
+function getUndercoverSetup(room) {
+  const total = room.players.length;
+  const settings = room.ucSettings || {};
+  const undercover = Number.isInteger(settings.undercover) ? settings.undercover : defaultUndercoverCount(total);
+  const blank = Number.isInteger(settings.blank) ? settings.blank : 0;
+  return { total, undercover, blank, civilian: total - undercover - blank };
+}
+
+function undercoverSetupError(setup) {
+  if (setup.total < UNDERCOVER_MIN_PLAYERS || setup.total > UNDERCOVER_MAX_PLAYERS) {
+    return `誰是臥底需要 ${UNDERCOVER_MIN_PLAYERS} 到 ${UNDERCOVER_MAX_PLAYERS} 名玩家才能開始。`;
+  }
+  if (setup.undercover < 1) return '至少要有 1 個臥底。';
+  if (setup.civilian <= setup.undercover + setup.blank) return '平民人數必須多於臥底＋白板，請減少臥底或白板。';
+  return null;
+}
+
+function resetUndercoverRoom(room) {
+  room.ucPair = null;
+  room.ucRound = 0;
+  room.ucSpeakOrder = [];
+  room.ucSpeakIndex = 0;
+  room.ucVotes = [];
+  room.ucCandidates = null;
+  room.ucRevote = false;
+  room.ucResult = null;
+  room.ucNext = null;
+  room.players.forEach(p => {
+    p.ucRole = null;
+    p.ucWord = null;
+    p.ucAlive = true;
+    p.ucLeft = false;
+  });
+}
+
+function undercoverAlive(room) {
+  return room.players.filter(p => p.ucAlive);
+}
+
+function getUndercoverRoomState(room, socketId) {
+  const revealAll = room.gameEnded;
+  const players = room.players.map(p => {
+    const isSelf = p.id === socketId;
+    // Roles stay secret until someone is voted out; a blank can tell from their empty card
+    const roleKnown = revealAll || p.ucAlive === false || (isSelf && p.ucRole === 'blank');
+    return {
+      id: p.id,
+      name: p.name,
+      host: p.host,
+      connected: p.connected,
+      isBot: false,
+      alive: p.ucAlive !== false,
+      left: !!p.ucLeft,
+      role: roleKnown ? p.ucRole : null,
+      word: (isSelf || revealAll) ? (p.ucWord || null) : null
+    };
+  });
+
+  const setup = getUndercoverSetup(room);
+  const votes = room.ucVotes || [];
+  const myVote = votes.find(v => v.voter === socketId);
+  return {
+    roomCode: room.roomCode,
+    gameType: room.gameType,
+    gameStarted: room.gameStarted,
+    gameEnded: room.gameEnded,
+    winnerTeam: room.winnerTeam,
+    roundPhase: room.roundPhase,
+    round: room.ucRound || 0,
+    setup: { ...setup, defaultUndercover: defaultUndercoverCount(setup.total), auto: !room.ucSettings || room.ucSettings.undercover === null, error: undercoverSetupError(setup) },
+    pair: revealAll ? room.ucPair : null,
+    speakOrder: room.ucSpeakOrder || [],
+    speakIndex: room.ucSpeakIndex || 0,
+    candidates: room.ucCandidates || null,
+    revote: !!room.ucRevote,
+    votedIds: votes.map(v => v.voter),
+    myVote: myVote ? myVote.target : null,
+    result: room.ucResult || null,
+    next: room.ucNext || null,
+    players,
+    history: room.history,
+    me: players.find(p => p.id === socketId) || null
+  };
+}
+
+function startUndercoverGame(room) {
+  const setup = getUndercoverSetup(room);
+  room.gameStarted = true;
+  room.gameEnded = false;
+  room.winnerTeam = null;
+  room.history = [];
+  resetUndercoverRoom(room);
+
+  // Avoid repeating a pair until the whole bank has been used in this room
+  if (!room.ucUsedPairs || room.ucUsedPairs.length >= UNDERCOVER_WORDS.length) room.ucUsedPairs = [];
+  const available = UNDERCOVER_WORDS.map((_, i) => i).filter(i => !room.ucUsedPairs.includes(i));
+  const pairIndex = available[Math.floor(Math.random() * available.length)];
+  room.ucUsedPairs.push(pairIndex);
+  const [civilianWord, undercoverWord] = shuffle([...UNDERCOVER_WORDS[pairIndex]]);
+  room.ucPair = { civilian: civilianWord, undercover: undercoverWord };
+
+  const roles = shuffle([
+    ...Array(setup.undercover).fill('undercover'),
+    ...Array(setup.blank).fill('blank'),
+    ...Array(setup.civilian).fill('civilian')
+  ]);
+  room.players.forEach((p, i) => {
+    p.ucRole = roles[i];
+    p.ucWord = roles[i] === 'civilian' ? civilianWord : roles[i] === 'undercover' ? undercoverWord : null;
+  });
+
+  const blankText = setup.blank ? `、${setup.blank} 個白板` : '';
+  addLog(room, 'system', `🕵️ 誰是臥底開始！這局有 ${setup.civilian} 個平民、${setup.undercover} 個臥底${blankText}。`);
+  startUndercoverRound(room);
+  broadcastRoomUpdate(room);
+}
+
+function startUndercoverRound(room) {
+  room.ucRound += 1;
+  room.roundPhase = 'speaking';
+  room.ucVotes = [];
+  room.ucCandidates = null;
+  room.ucRevote = false;
+  room.ucResult = null;
+  room.ucNext = null;
+
+  // Go around the table from a random starting player; a blank never opens the round
+  const alive = undercoverAlive(room);
+  const openers = alive.filter(p => p.ucRole !== 'blank');
+  const pool = openers.length ? openers : alive;
+  const first = pool[Math.floor(Math.random() * pool.length)];
+  const start = alive.indexOf(first);
+  room.ucSpeakOrder = [...alive.slice(start), ...alive.slice(0, start)].map(p => p.id);
+  room.ucSpeakIndex = 0;
+  addLog(room, 'system', `🗣️ 第 ${room.ucRound} 輪描述開始，由【${first.name}】先說。`);
+}
+
+// Move past speakers who have left; once everyone has spoken, open the vote
+function advanceUndercoverSpeaker(room) {
+  while (room.ucSpeakIndex < room.ucSpeakOrder.length) {
+    const p = room.players.find(pl => pl.id === room.ucSpeakOrder[room.ucSpeakIndex]);
+    if (p && p.ucAlive) return;
+    room.ucSpeakIndex += 1;
+  }
+  startUndercoverVoting(room, null);
+}
+
+function startUndercoverVoting(room, candidates) {
+  room.roundPhase = 'voting';
+  room.ucVotes = [];
+  room.ucCandidates = candidates;
+  room.ucRevote = !!candidates;
+  addLog(room, 'system', candidates ? '⚖️ 平票！請在平票的人之中再投一次。' : '🗳️ 描述結束，開始投票！');
+}
+
+function undercoverWinner(room) {
+  const alive = undercoverAlive(room);
+  const bad = alive.filter(p => p.ucRole !== 'civilian').length;
+  const good = alive.length - bad;
+  if (bad === 0) return 'civilian';
+  if (good <= bad) return 'undercover';
+  return null;
+}
+
+function endUndercoverIfWon(room) {
+  const winner = undercoverWinner(room);
+  if (!winner) return false;
+  room.winnerTeam = winner;
+  room.gameEnded = true;
+  room.roundPhase = 'game_over';
+  room.ucNext = 'end';
+  const words = `平民的詞是「${room.ucPair.civilian}」，臥底的詞是「${room.ucPair.undercover}」。`;
+  addLog(room, 'system', winner === 'civilian'
+    ? `🎉 臥底全部出局，平民獲勝！${words}`
+    : `🕵️ 臥底撐到最後，臥底陣營獲勝！${words}`);
+  return true;
+}
+
+function resolveUndercoverVotes(room) {
+  const counts = new Map();
+  room.ucVotes.forEach(v => counts.set(v.target, (counts.get(v.target) || 0) + 1));
+  const tally = [...counts.entries()].map(([id, count]) => ({ id, count })).sort((a, b) => b.count - a.count);
+  const votes = room.ucVotes.map(v => ({ ...v }));
+  const max = tally.length ? tally[0].count : 0;
+  const top = tally.filter(t => t.count === max).map(t => t.id);
+  const nameOf = (id) => room.players.find(p => p.id === id).name;
+
+  room.roundPhase = 'reveal';
+  if (top.length === 1) {
+    const out = room.players.find(p => p.id === top[0]);
+    out.ucAlive = false;
+    room.ucResult = { votes, tally, eliminatedId: out.id, tied: [] };
+    addLog(room, 'system', `☠️ ${out.name} 以 ${max} 票出局，身分是【${UNDERCOVER_ROLE_NAMES[out.ucRole]}】。`);
+    if (!endUndercoverIfWon(room)) room.ucNext = 'round';
+  } else if (!room.ucRevote) {
+    room.ucResult = { votes, tally, eliminatedId: null, tied: top };
+    room.ucNext = 'revote';
+    addLog(room, 'system', `⚖️ ${top.map(nameOf).join('、')} 平票，要在他們之中再投一次。`);
+  } else {
+    room.ucResult = { votes, tally, eliminatedId: null, tied: top };
+    room.ucNext = 'round';
+    addLog(room, 'system', '⚖️ 再次平票，這輪沒有人出局。');
+  }
+}
+
+function maybeResolveUndercoverVotes(room) {
+  if (room.roundPhase !== 'voting') return;
+  const voters = undercoverAlive(room).filter(p => p.connected);
+  if (voters.length && voters.every(p => room.ucVotes.some(v => v.voter === p.id))) {
+    resolveUndercoverVotes(room);
+  }
+}
+
+// A player who leaves for good is out of the game (their role stays secret until the end)
+function handleUndercoverDeparture(room, player) {
+  if (room.gameEnded || player.ucAlive === false) return;
+  player.ucAlive = false;
+  player.ucLeft = true;
+  if (endUndercoverIfWon(room)) return;
+
+  if (room.roundPhase === 'speaking') {
+    advanceUndercoverSpeaker(room);
+  } else if (room.roundPhase === 'voting') {
+    // Votes for or by the leaver no longer make sense: start this vote over
+    const remaining = room.ucCandidates ? room.ucCandidates.filter(id => id !== player.id) : null;
+    startUndercoverVoting(room, remaining && remaining.length >= 2 ? remaining : null);
+  }
+}
+
+function getUndercoverContext(socket, phase) {
+  const room = getRoomBySocket(socket);
+  if (!room || room.gameType !== 'undercover' || !room.gameStarted || room.gameEnded) return null;
+  if (phase && room.roundPhase !== phase) return null;
+  const player = room.players.find(p => p.id === socket.id);
+  if (!player) return null;
+  return { room, player };
+}
+
+io.on('connection', (socket) => {
+  // Event: Host sets how many undercovers / blanks the next game has
+  socket.on('undercover_settings', ({ undercover, blank } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'undercover' || room.gameStarted) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player || !player.host) return;
+    if (!room.ucSettings) room.ucSettings = { undercover: null, blank: 0 };
+    if (undercover === null) room.ucSettings.undercover = null; // back to the automatic default
+    else if (Number.isInteger(undercover)) room.ucSettings.undercover = Math.max(1, Math.min(4, undercover));
+    if (Number.isInteger(blank)) room.ucSettings.blank = Math.max(0, Math.min(3, blank));
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: The current speaker (or the host, for someone who's away) finishes describing
+  socket.on('undercover_doneSpeaking', () => {
+    const ctx = getUndercoverContext(socket, 'speaking');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (player.id !== room.ucSpeakOrder[room.ucSpeakIndex] && !player.host) return;
+    room.ucSpeakIndex += 1;
+    advanceUndercoverSpeaker(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Cast (or change) a secret vote
+  socket.on('undercover_vote', ({ targetId } = {}) => {
+    const ctx = getUndercoverContext(socket, 'voting');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (!player.ucAlive) return;
+    const target = room.players.find(p => p.id === targetId);
+    if (!target || !target.ucAlive || target.id === player.id) return;
+    if (room.ucCandidates && !room.ucCandidates.includes(target.id)) return;
+
+    room.ucVotes = room.ucVotes.filter(v => v.voter !== player.id);
+    room.ucVotes.push({ voter: player.id, target: target.id });
+    maybeResolveUndercoverVotes(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host closes the vote early (e.g. someone dropped off and won't vote)
+  socket.on('undercover_forceTally', () => {
+    const ctx = getUndercoverContext(socket, 'voting');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (!player.host || room.ucVotes.length === 0) return;
+    resolveUndercoverVotes(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Anyone moves on from the vote result
+  socket.on('undercover_continue', () => {
+    const ctx = getUndercoverContext(socket, 'reveal');
+    if (!ctx) return;
+    const { room } = ctx;
+    if (room.ucNext === 'revote') {
+      startUndercoverVoting(room, room.ucResult.tied);
+    } else {
+      startUndercoverRound(room);
+    }
     broadcastRoomUpdate(room);
   });
 });
