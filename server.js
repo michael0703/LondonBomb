@@ -2687,6 +2687,8 @@ function resetUndercoverRoom(room) {
   room.ucRevote = false;
   room.ucResult = null;
   room.ucNext = null;
+  room.ucEarlyVote = null;
+  room.ucEarlyProposers = [];
   room.players.forEach(p => {
     p.ucRole = null;
     p.ucWord = null;
@@ -2700,7 +2702,10 @@ function undercoverAlive(room) {
 }
 
 function getUndercoverRoomState(room, socketId) {
-  const revealAll = room.gameEnded;
+  const viewer = room.players.find(p => p.id === socketId);
+  // Eliminated players watch the rest of the game with everything revealed
+  const viewerIsGhost = !!(room.gameStarted && viewer && viewer.ucAlive === false);
+  const revealAll = room.gameEnded || viewerIsGhost;
   const players = room.players.map(p => {
     const isSelf = p.id === socketId;
     // Roles stay secret until someone is voted out; a blank can tell from their empty card
@@ -2721,6 +2726,15 @@ function getUndercoverRoomState(room, socketId) {
   const setup = getUndercoverSetup(room);
   const votes = room.ucVotes || [];
   const myVote = votes.find(v => v.voter === socketId);
+  // How many of each role this game has, and how many are still in. Everyone who
+  // is out has their role revealed, so the remaining counts give nothing away.
+  const roleCounts = {};
+  if (room.gameStarted) {
+    ['civilian', 'undercover', 'blank'].forEach(role => {
+      const holders = room.players.filter(p => p.ucRole === role);
+      roleCounts[role] = { total: holders.length, alive: holders.filter(p => p.ucAlive).length };
+    });
+  }
   return {
     roomCode: room.roomCode,
     gameType: room.gameType,
@@ -2731,18 +2745,53 @@ function getUndercoverRoomState(room, socketId) {
     round: room.ucRound || 0,
     setup: { ...setup, defaultUndercover: defaultUndercoverCount(setup.total), auto: !room.ucSettings || room.ucSettings.undercover === null, error: undercoverSetupError(setup) },
     pair: revealAll ? room.ucPair : null,
+    viewerIsGhost,
+    roleCounts,
     speakOrder: room.ucSpeakOrder || [],
     speakIndex: room.ucSpeakIndex || 0,
     candidates: room.ucCandidates || null,
     revote: !!room.ucRevote,
     votedIds: votes.map(v => v.voter),
     myVote: myVote ? myVote.target : null,
+    earlyVote: room.ucEarlyVote ? {
+      ...room.ucEarlyVote,
+      needed: undercoverEarlyVoteNeeded(room),
+      alive: undercoverAlive(room).length
+    } : null,
+    earlyProposers: room.ucEarlyProposers || [],
     result: room.ucResult || null,
     next: room.ucNext || null,
     players,
     history: room.history,
     me: players.find(p => p.id === socketId) || null
   };
+}
+
+// Someone who had a special role last game is half as likely to get it again,
+// so roles rotate more evenly without it being noticeable
+const UNDERCOVER_REPEAT_WEIGHT = 0.5;
+
+function drawWeighted(pool, weightOf) {
+  const total = pool.reduce((sum, p) => sum + weightOf(p), 0);
+  let r = Math.random() * total;
+  for (const p of pool) {
+    r -= weightOf(p);
+    if (r < 0) return p;
+  }
+  return pool[pool.length - 1];
+}
+
+function assignUndercoverRoles(room, setup) {
+  const pool = shuffle([...room.players]);
+  pool.forEach(p => { p.ucRole = 'civilian'; });
+  [['blank', setup.blank], ['undercover', setup.undercover]].forEach(([role, count]) => {
+    for (let i = 0; i < count; i++) {
+      const pick = drawWeighted(pool, p => (p.ucLastRole === role ? UNDERCOVER_REPEAT_WEIGHT : 1));
+      pick.ucRole = role;
+      pool.splice(pool.indexOf(pick), 1);
+    }
+  });
+  room.players.forEach(p => { p.ucLastRole = p.ucRole; });
 }
 
 function startUndercoverGame(room) {
@@ -2761,14 +2810,9 @@ function startUndercoverGame(room) {
   const [civilianWord, undercoverWord] = shuffle([...UNDERCOVER_WORDS[pairIndex]]);
   room.ucPair = { civilian: civilianWord, undercover: undercoverWord };
 
-  const roles = shuffle([
-    ...Array(setup.undercover).fill('undercover'),
-    ...Array(setup.blank).fill('blank'),
-    ...Array(setup.civilian).fill('civilian')
-  ]);
-  room.players.forEach((p, i) => {
-    p.ucRole = roles[i];
-    p.ucWord = roles[i] === 'civilian' ? civilianWord : roles[i] === 'undercover' ? undercoverWord : null;
+  assignUndercoverRoles(room, setup);
+  room.players.forEach(p => {
+    p.ucWord = p.ucRole === 'civilian' ? civilianWord : p.ucRole === 'undercover' ? undercoverWord : null;
   });
 
   const blankText = setup.blank ? `、${setup.blank} 個白板` : '';
@@ -2785,6 +2829,8 @@ function startUndercoverRound(room) {
   room.ucRevote = false;
   room.ucResult = null;
   room.ucNext = null;
+  room.ucEarlyVote = null;
+  room.ucEarlyProposers = [];
 
   // Go around the table from a random starting player; a blank never opens the round
   const alive = undercoverAlive(room);
@@ -2808,6 +2854,7 @@ function advanceUndercoverSpeaker(room) {
 }
 
 function startUndercoverVoting(room, candidates) {
+  room.ucEarlyVote = null;
   room.roundPhase = 'voting';
   room.ucVotes = [];
   room.ucCandidates = candidates;
@@ -2881,11 +2928,35 @@ function handleUndercoverDeparture(room, player) {
   if (endUndercoverIfWon(room)) return;
 
   if (room.roundPhase === 'speaking') {
-    advanceUndercoverSpeaker(room);
+    checkUndercoverEarlyVote(room);
+    if (room.roundPhase === 'speaking') advanceUndercoverSpeaker(room);
   } else if (room.roundPhase === 'voting') {
     // Votes for or by the leaver no longer make sense: start this vote over
     const remaining = room.ucCandidates ? room.ucCandidates.filter(id => id !== player.id) : null;
     startUndercoverVoting(room, remaining && remaining.length >= 2 ? remaining : null);
+  }
+}
+
+// Early vote: during the descriptions anyone alive can propose skipping straight
+// to the vote; it passes once at least 2/3 of the living players agree
+function undercoverEarlyVoteNeeded(room) {
+  return Math.ceil(undercoverAlive(room).length * 2 / 3);
+}
+
+function checkUndercoverEarlyVote(room) {
+  const ev = room.ucEarlyVote;
+  if (!ev || room.roundPhase !== 'speaking') return;
+  const aliveIds = undercoverAlive(room).map(p => p.id);
+  ev.yesIds = ev.yesIds.filter(id => aliveIds.includes(id));
+  ev.noIds = ev.noIds.filter(id => aliveIds.includes(id));
+  const needed = undercoverEarlyVoteNeeded(room);
+  const nameOf = (id) => room.players.find(p => p.id === id).name;
+  if (ev.yesIds.length >= needed) {
+    addLog(room, 'system', `⏩ ${ev.yesIds.length} 人同意提早投票，跳過剩下的描述！`);
+    startUndercoverVoting(room, null);
+  } else if (aliveIds.length - ev.noIds.length < needed) {
+    addLog(room, 'system', `🙅 ${nameOf(ev.proposerId)} 的提早投票提議沒有通過，繼續描述。`);
+    room.ucEarlyVote = null;
   }
 }
 
@@ -2923,6 +2994,37 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(room);
   });
 
+  // Event: Propose skipping the rest of the descriptions (once per player per round)
+  socket.on('undercover_proposeEarlyVote', () => {
+    const ctx = getUndercoverContext(socket, 'speaking');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (!player.ucAlive || room.ucEarlyVote) return;
+    if (room.ucEarlyProposers.includes(player.id)) {
+      socket.emit('errorMsg', '這一輪你已經提議過了。');
+      return;
+    }
+    room.ucEarlyProposers.push(player.id);
+    room.ucEarlyVote = { proposerId: player.id, yesIds: [player.id], noIds: [] };
+    addLog(room, 'system', `🗳️ ${player.name} 提議提早投票，需要 ${undercoverEarlyVoteNeeded(room)} 人同意。`);
+    checkUndercoverEarlyVote(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Agree / disagree with the early vote proposal
+  socket.on('undercover_earlyVoteAnswer', ({ agree } = {}) => {
+    const ctx = getUndercoverContext(socket, 'speaking');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    const ev = room.ucEarlyVote;
+    if (!ev || !player.ucAlive) return;
+    ev.yesIds = ev.yesIds.filter(id => id !== player.id);
+    ev.noIds = ev.noIds.filter(id => id !== player.id);
+    (agree === true ? ev.yesIds : ev.noIds).push(player.id);
+    checkUndercoverEarlyVote(room);
+    broadcastRoomUpdate(room);
+  });
+
   // Event: Cast (or change) a secret vote
   socket.on('undercover_vote', ({ targetId } = {}) => {
     const ctx = getUndercoverContext(socket, 'voting');
@@ -2949,11 +3051,12 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(room);
   });
 
-  // Event: Anyone moves on from the vote result
+  // Event: Host moves on from the vote result (it stays on screen until then)
   socket.on('undercover_continue', () => {
     const ctx = getUndercoverContext(socket, 'reveal');
     if (!ctx) return;
-    const { room } = ctx;
+    const { room, player } = ctx;
+    if (!player.host) return;
     if (room.ucNext === 'revote') {
       startUndercoverVoting(room, room.ucResult.tied);
     } else {

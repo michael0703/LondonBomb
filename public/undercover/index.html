@@ -94,7 +94,9 @@
                         <li>大部分人是<strong>平民</strong>，拿到同一個詞；<strong>臥底</strong>拿到一個相近但不同的詞。沒有人知道自己是不是臥底！</li>
                         <li><strong>白板</strong>拿不到任何詞，要靠聽別人描述來混進去（白板算臥底陣營）。</li>
                         <li>每輪照順序<strong>當面口頭</strong>用一句話描述自己的詞，說完按「我說完了」。不能直接說出詞！</li>
-                        <li>全部說完後用手機<strong>秘密投票</strong>，最高票的人出局並公開身分；平票就在平票的人之中再投一次。</li>
+                        <li>全部說完後用手機<strong>秘密投票</strong>，最高票的人出局並公開身分；平票就在平票的人之中再投一次。開票結果會一直顯示，直到房主按下一步。</li>
+                        <li>描述途中覺得已經知道臥底是誰？可以<strong>提議提早投票</strong>，存活玩家有 2/3 以上同意就跳過剩下的描述（每人每輪限提議一次）。</li>
+                        <li>出局的人可以看到所有人的身分和詞，但<strong>不可以透露</strong>給還在場上的人。</li>
                         <li>臥底和白板全部出局 ➔ <strong>平民獲勝</strong>；平民人數不再多於臥底陣營 ➔ <strong>臥底獲勝</strong>。</li>
                     </ul>
                     <div class="host-controls">
@@ -134,6 +136,10 @@
                 </div>
             </div>
 
+            <div id="role-counts" class="role-counts"></div>
+
+            <div id="ghost-banner" class="ghost-banner">👻 你已出局，現在看得到所有人的身分和詞。請不要透露給還在場上的人！</div>
+
             <div id="ticker-banner">
                 <span id="ticker-text">遊戲準備中...</span>
             </div>
@@ -144,6 +150,14 @@
                     <div id="speaking-hint" class="control-hint"></div>
                     <button id="btn-done-speaking" class="btn btn-gold btn-large"><span>✅ 我說完了</span></button>
                     <button id="btn-skip-speaker" class="btn btn-brass btn-small"><span>⏭️ 跳過</span></button>
+                    <div id="early-vote-box" class="early-vote-box">
+                        <div id="early-vote-text" class="control-hint"></div>
+                        <div class="quick-answer-row">
+                            <button id="btn-early-yes" class="btn btn-answer answer-yes"><span>👍 同意</span></button>
+                            <button id="btn-early-no" class="btn btn-answer answer-no"><span>👎 不同意</span></button>
+                        </div>
+                    </div>
+                    <button id="btn-propose-early" class="btn btn-brass btn-small"><span>🗳️ 提議提早投票</span></button>
                 </div>
 
                 <!-- Voting: pick someone to vote out -->
@@ -159,6 +173,7 @@
                     <div id="reveal-title" class="reveal-title"></div>
                     <ul id="reveal-votes" class="reveal-votes"></ul>
                     <button id="btn-continue" class="btn btn-gold btn-large"><span>繼續</span></button>
+                    <div id="reveal-wait" class="control-hint">等待房主進入下一步...</div>
                 </div>
 
                 <div id="panel-spectating" class="control-sub-panel">

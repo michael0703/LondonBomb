@@ -147,6 +147,21 @@ function renderWordCard(state) {
     }
 }
 
+// ROLE COUNTS: how many of each role this game has and how many are still in
+function renderRoleCounts(state) {
+    const box = $('role-counts');
+    box.innerHTML = '';
+    [['undercover', '🕵️ 臥底'], ['blank', '⬜ 白板'], ['civilian', '🙂 平民']].forEach(([role, label]) => {
+        const c = state.roleCounts[role];
+        if (!c || (role === 'blank' && c.total === 0)) return;
+        const chip = el('span', 'role-chip role-chip-' + role);
+        chip.appendChild(el('span', null, `${label} `));
+        chip.appendChild(el('strong', null, `剩 ${c.alive}`));
+        chip.appendChild(el('span', null, ` / ${c.total}`));
+        box.appendChild(chip);
+    });
+}
+
 // PLAYER LIST (seat order)
 function renderPlayers(state) {
     const list = $('players-list');
@@ -160,7 +175,12 @@ function renderPlayers(state) {
         if (p.id === speakerId) li.classList.add('speaking');
         if (!p.connected) li.classList.add('disconnected');
 
-        li.appendChild(el('span', 'uc-name', p.name + (p.id === socket.id ? ' (你)' : '') + (p.connected ? '' : ' 📴')));
+        const nameBox = el('span', 'uc-name', p.name + (p.id === socket.id ? ' (你)' : '') + (p.connected ? '' : ' 📴'));
+        // Eliminated players see everyone's role and word
+        if (state.viewerIsGhost && !state.gameEnded && p.role) {
+            nameBox.appendChild(el('span', 'uc-reveal role-' + p.role, `${ROLE_LABELS[p.role]}${p.word ? `｜${p.word}` : ''}`));
+        }
+        li.appendChild(nameBox);
 
         let status = '';
         if (!p.alive) {
@@ -197,6 +217,7 @@ function renderControls(state) {
         $('btn-done-speaking').style.display = isMe ? 'block' : 'none';
         $('btn-skip-speaker').style.display = !isMe && me && me.host ? 'block' : 'none';
         $('btn-skip-speaker').querySelector('span').textContent = `⏭️ 跳過 ${speakerName}`;
+        renderEarlyVote(state);
         $('speaking-hint').textContent = isMe
             ? '輪到你了！用一句話描述你的詞（不能直接說出來），說完按下面的按鈕。'
             : `請聽【${speakerName}】描述...`;
@@ -247,11 +268,30 @@ function renderControls(state) {
         $('reveal-title').textContent = title;
         renderVoteList($('reveal-votes'), state);
         $('btn-continue').querySelector('span').textContent = state.next === 'revote' ? '⚖️ 開始重新投票' : '▶️ 下一輪';
+        $('btn-continue').style.display = me && me.host ? 'block' : 'none';
+        $('reveal-wait').style.display = me && me.host ? 'none' : 'block';
         return title;
     }
 
     spectate('遊戲結束！');
     return '🏁 遊戲結束！';
+}
+
+// Early vote proposal box inside the speaking panel
+function renderEarlyVote(state) {
+    const me = state.me;
+    const ev = state.earlyVote;
+    const canTakePart = me && me.alive;
+    $('btn-propose-early').style.display = canTakePart && !ev && !state.earlyProposers.includes(socket.id) ? 'block' : 'none';
+    $('early-vote-box').style.display = ev ? 'flex' : 'none';
+    if (!ev) return;
+    const myChoice = ev.yesIds.includes(socket.id) ? 'yes' : ev.noIds.includes(socket.id) ? 'no' : null;
+    let text = `🗳️ ${nameOf(state, ev.proposerId)} 提議提早投票：同意 ${ev.yesIds.length} 人，需要 ${ev.needed} 人（存活 ${ev.alive} 人）`;
+    if (myChoice) text += myChoice === 'yes' ? '｜你：同意' : '｜你：不同意';
+    $('early-vote-text').textContent = text;
+    $('btn-early-yes').parentElement.style.display = canTakePart ? 'flex' : 'none';
+    $('btn-early-yes').classList.toggle('chosen', myChoice === 'yes');
+    $('btn-early-no').classList.toggle('chosen', myChoice === 'no');
 }
 
 // Who voted for whom, grouped by target
@@ -303,6 +343,8 @@ function renderGameBoard(state) {
     $('display-alive').textContent = state.players.filter(p => p.alive).length;
 
     renderWordCard(state);
+    renderRoleCounts(state);
+    $('ghost-banner').style.display = state.viewerIsGhost && !state.gameEnded ? 'block' : 'none';
     renderPlayers(state);
     $('ticker-text').textContent = renderControls(state);
     renderGameOver(state);
@@ -311,7 +353,7 @@ function renderGameBoard(state) {
 
 // Notify players when it's their turn to speak, the vote opens, or the game ends
 function playStateSounds(state) {
-    let key = `${state.round}-${state.roundPhase}-${state.revote}`;
+    let key = `${state.round}-${state.roundPhase}-${state.revote}-${state.earlyVote ? state.earlyVote.proposerId : ''}`;
     const mySpeakTurn = state.roundPhase === 'speaking' && state.speakOrder[state.speakIndex] === socket.id;
     if (mySpeakTurn) key += '-me';
     if (key === lastSoundKey) return;
@@ -368,6 +410,18 @@ function initEvents() {
     $('btn-skip-speaker').addEventListener('click', () => {
         AudioSynth.playTick();
         socket.emit('undercover_doneSpeaking');
+    });
+    $('btn-propose-early').addEventListener('click', () => {
+        AudioSynth.playTick();
+        socket.emit('undercover_proposeEarlyVote');
+    });
+    $('btn-early-yes').addEventListener('click', () => {
+        AudioSynth.playTick();
+        socket.emit('undercover_earlyVoteAnswer', { agree: true });
+    });
+    $('btn-early-no').addEventListener('click', () => {
+        AudioSynth.playTick();
+        socket.emit('undercover_earlyVoteAnswer', { agree: false });
     });
     $('btn-force-tally').addEventListener('click', () => {
         if (confirm('還有人沒投票，確定要直接開票嗎？')) socket.emit('undercover_forceTally');
