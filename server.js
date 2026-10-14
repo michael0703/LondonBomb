@@ -5,6 +5,7 @@ const path = require('path');
 const TOPTEN_TOPICS = require('./topics.json');
 const WHOAMI_CELEBRITIES = require('./celebrities.json');
 const UNDERCOVER_WORDS = require('./undercover-words.json');
+const DECRYPTO_WORDS = require('./decrypto-words.json');
 
 const app = express();
 const server = http.createServer(app);
@@ -198,6 +199,10 @@ function getSanitizedRoomState(room, socketId) {
 
   if (room.gameType === 'werewolf') {
     return getWerewolfRoomState(room, socketId);
+  }
+
+  if (room.gameType === 'decrypto') {
+    return getDecryptoRoomState(room, socketId);
   }
 
   const sanitizedPlayers = room.players.map(p => {
@@ -408,6 +413,9 @@ function handlePlayerDeparture(room, player, permanent) {
   }
   if (room.gameType === 'werewolf' && permanent) {
     handleWerewolfDeparture(room, player);
+  }
+  if (room.gameType === 'decrypto' && permanent) {
+    handleDecryptoDeparture(room, player);
   }
 
   if (room.gameType === 'whoami') {
@@ -635,7 +643,8 @@ io.on('connection', (socket) => {
 
     const maxPlayers = room.gameType === 'undercover' ? UNDERCOVER_MAX_PLAYERS
       : room.gameType === 'mascarade' ? MASCARADE_MAX_PLAYERS
-      : room.gameType === 'werewolf' ? WEREWOLF_MAX_PLAYERS : 8;
+      : room.gameType === 'werewolf' ? WEREWOLF_MAX_PLAYERS
+      : room.gameType === 'decrypto' ? DECRYPTO_MAX_PLAYERS : 8;
     if (room.players.length >= maxPlayers) {
       socket.emit('errorMsg', `房間人數已滿（最多${maxPlayers}人）。`);
       return;
@@ -688,6 +697,10 @@ io.on('connection', (socket) => {
     }
     if (room.gameType === 'werewolf') {
       socket.emit('errorMsg', '一夜終極狼人需要真人一起玩，無法加入 AI 機器人。');
+      return;
+    }
+    if (room.gameType === 'decrypto') {
+      socket.emit('errorMsg', '截碼戰需要真人一起玩，無法加入 AI 機器人。');
       return;
     }
     const player = room.players.find(p => p.id === socket.id);
@@ -832,6 +845,17 @@ io.on('connection', (socket) => {
         return;
       }
       startWerewolfGame(room);
+      return;
+    }
+
+    if (room.gameType === 'decrypto') {
+      const setupError = decryptoSetupError(room);
+      if (setupError) {
+        socket.emit('errorMsg', setupError);
+        return;
+      }
+      startDecryptoGame(room);
+      broadcastRoomUpdate(room);
       return;
     }
 
@@ -1213,6 +1237,9 @@ io.on('connection', (socket) => {
     }
     if (room.gameType === 'werewolf') {
       resetWerewolfRoom(room);
+    }
+    if (room.gameType === 'decrypto') {
+      resetDecryptoRoom(room);
     }
 
     addLog(room, 'system', '房主重設了對局，返回候戰室。');
@@ -4354,6 +4381,374 @@ io.on('connection', (socket) => {
     if (!ctx || !ctx.player.host) return;
     resolveWerewolfVotes(ctx.room);
     broadcastRoomUpdate(ctx.room);
+  });
+});
+
+// ================= DECRYPTO (截碼戰) =================
+const DECRYPTO_MAX_PLAYERS = 12;
+const DECRYPTO_MAX_ROUNDS = 8;
+const DECRYPTO_TEAM_NAMES = ['🔵 藍隊', '🔴 紅隊'];
+// All 24 codes: three different digits from 1-4
+const DECRYPTO_CODES = (() => {
+  const codes = [];
+  for (let a = 1; a <= 4; a++) for (let b = 1; b <= 4; b++) for (let c = 1; c <= 4; c++) {
+    if (a !== b && b !== c && a !== c) codes.push([a, b, c]);
+  }
+  return codes;
+})();
+
+const dcPlayer = (room, id) => room.players.find(p => p.id === id);
+const dcActiveMembers = (room, team) => room.players.filter(p => p.dcTeam === team && !p.dcLeft);
+const dcCodeText = (code) => (code ? code.join('-') : '?');
+
+function isValidDecryptoCode(code) {
+  return Array.isArray(code) && code.length === 3 && code.every(d => Number.isInteger(d) && d >= 1 && d <= 4) && new Set(code).size === 3;
+}
+
+// Lobby: everyone without a team joins the smaller one
+function ensureDecryptoTeams(room) {
+  room.players.forEach(p => {
+    if (p.dcTeam === 0 || p.dcTeam === 1) return;
+    const size = (t) => room.players.filter(o => o.dcTeam === t).length;
+    p.dcTeam = size(0) <= size(1) ? 0 : 1;
+  });
+}
+
+function decryptoSetupError(room) {
+  const sizes = [0, 1].map(t => room.players.filter(p => p.dcTeam === t).length);
+  if (room.players.length < 4) return '至少要 4 個人（兩隊各 2 人）才能開始。';
+  if (sizes[0] < 2 || sizes[1] < 2) return '每一隊至少要 2 個人。';
+  return null;
+}
+
+function resetDecryptoRoom(room) {
+  room.dcWords = [[], []];
+  room.dcRound = 0;
+  room.dcEncIdx = [-1, -1];
+  room.dcEncryptors = [null, null];
+  room.dcCodeDecks = [[], []];
+  room.dcCodes = [null, null];
+  room.dcClues = [null, null];
+  room.dcActive = 0;
+  room.dcGuess = null;
+  room.dcHistory = [];
+  room.dcResult = null;
+  room.players.forEach(p => { p.dcLeft = false; });
+}
+
+function startDecryptoGame(room) {
+  room.gameStarted = true;
+  room.gameEnded = false;
+  room.winnerTeam = null;
+  room.history = [];
+  resetDecryptoRoom(room);
+  const words = shuffle([...DECRYPTO_WORDS]);
+  room.dcWords = [words.slice(0, 4), words.slice(4, 8)];
+  room.dcCodeDecks = [shuffle(DECRYPTO_CODES.map(c => [...c])), shuffle(DECRYPTO_CODES.map(c => [...c]))];
+  addLog(room, 'system', '🔐 截碼戰開始！兩隊各拿到 4 個關鍵字。');
+  startDecryptoRound(room);
+}
+
+function pickDecryptoEncryptor(room, team) {
+  const members = dcActiveMembers(room, team);
+  if (!members.length) return null;
+  room.dcEncIdx[team] = (room.dcEncIdx[team] + 1) % members.length;
+  return members[room.dcEncIdx[team]].id;
+}
+
+function startDecryptoRound(room) {
+  room.dcRound += 1;
+  room.roundPhase = 'clue';
+  room.dcActive = 0;
+  room.dcGuess = null;
+  [0, 1].forEach(t => {
+    room.dcEncryptors[t] = pickDecryptoEncryptor(room, t);
+    room.dcCodes[t] = room.dcCodeDecks[t].pop();
+    room.dcClues[t] = null;
+  });
+  const names = [0, 1].map(t => `${DECRYPTO_TEAM_NAMES[t]} ${(dcPlayer(room, room.dcEncryptors[t]) || {}).name || '?'}`);
+  addLog(room, 'system', `📡 第 ${room.dcRound} 回合：這回合的加密者是 ${names.join('、')}。`);
+}
+
+function startDecryptoGuessing(room, team) {
+  room.roundPhase = 'guess';
+  room.dcActive = team;
+  room.dcGuess = {
+    decode: null, decodeBy: null,
+    intercept: null, interceptBy: null,
+    interceptAllowed: room.dcRound > 1
+  };
+}
+
+function maybeRevealDecrypto(room) {
+  const g = room.dcGuess;
+  if (!g || room.roundPhase !== 'guess') return;
+  if (g.decode && (g.intercept || !g.interceptAllowed)) revealDecrypto(room);
+}
+
+function revealDecrypto(room) {
+  const t = room.dcActive;
+  const g = room.dcGuess;
+  const code = room.dcCodes[t];
+  const same = (a) => !!a && a.every((d, i) => d === code[i]);
+  const entry = {
+    round: room.dcRound,
+    team: t,
+    encryptorId: room.dcEncryptors[t],
+    clues: room.dcClues[t],
+    code,
+    decode: g.decode,
+    decodeOk: same(g.decode),
+    intercept: g.interceptAllowed ? g.intercept : null,
+    interceptOk: g.interceptAllowed ? same(g.intercept) : null
+  };
+  room.dcHistory.push(entry);
+  room.roundPhase = 'reveal';
+  const parts = [`密碼是 ${dcCodeText(code)}`];
+  parts.push(entry.decodeOk ? `${DECRYPTO_TEAM_NAMES[t]}解碼成功` : `${DECRYPTO_TEAM_NAMES[t]}解碼失敗（猜 ${dcCodeText(g.decode)}），得到 1 個❌失誤`);
+  if (entry.interceptOk) parts.push(`${DECRYPTO_TEAM_NAMES[1 - t]}攔截成功，得到 1 個🎯攔截`);
+  else if (entry.intercept) parts.push(`${DECRYPTO_TEAM_NAMES[1 - t]}攔截失敗（猜 ${dcCodeText(entry.intercept)}）`);
+  addLog(room, 'system', `🔓 ${parts.join('，')}。`);
+}
+
+function decryptoTokens(room) {
+  const tokens = [{ intercepts: 0, misses: 0 }, { intercepts: 0, misses: 0 }];
+  (room.dcHistory || []).forEach(h => {
+    if (!h.decodeOk) tokens[h.team].misses += 1;
+    if (h.interceptOk) tokens[1 - h.team].intercepts += 1;
+  });
+  return tokens;
+}
+
+function endDecryptoGame(room, winner, reason) {
+  room.dcResult = { winner, reason };
+  room.roundPhase = 'game_over';
+  room.gameEnded = true;
+  room.winnerTeam = winner === null ? null : String(winner);
+  addLog(room, 'system', winner === null ? `🏁 平手！${reason}` : `🏁 ${DECRYPTO_TEAM_NAMES[winner]}獲勝！${reason}`);
+}
+
+// After both teams have played the round: check tokens, otherwise start the next round
+function finishDecryptoRound(room) {
+  const tk = decryptoTokens(room);
+  const win = [0, 1].map(t => tk[t].intercepts >= 2 || tk[1 - t].misses >= 2);
+  const lastRound = room.dcRound >= DECRYPTO_MAX_ROUNDS;
+  if (win[0] !== win[1]) {
+    const w = win[0] ? 0 : 1;
+    const reason = tk[w].intercepts >= 2 ? '成功攔截對手 2 次。' : '對手解碼失敗 2 次。';
+    endDecryptoGame(room, w, reason);
+    return;
+  }
+  if (win[0] || lastRound) {
+    // Both sides triggered at once, or the rounds ran out: intercepts minus misses decides
+    const score = tk.map(x => x.intercepts - x.misses);
+    const head = lastRound && !win[0] ? `${DECRYPTO_MAX_ROUNDS} 回合結束，` : '兩隊同時達成條件，';
+    if (score[0] !== score[1]) {
+      const w = score[0] > score[1] ? 0 : 1;
+      endDecryptoGame(room, w, `${head}比分數（攔截－失誤）${score[w]} 比 ${score[1 - w]}。`);
+    } else {
+      endDecryptoGame(room, null, `${head}分數（攔截－失誤）一樣都是 ${score[0]}。`);
+    }
+    return;
+  }
+  startDecryptoRound(room);
+}
+
+function getDecryptoRoomState(room, socketId) {
+  if (!room.gameStarted) ensureDecryptoTeams(room);
+  const me = dcPlayer(room, socketId);
+  const myTeam = me && (me.dcTeam === 0 || me.dcTeam === 1) ? me.dcTeam : null;
+  const reveal = room.gameEnded;
+  const phase = room.roundPhase;
+  const players = room.players.map(p => ({
+    id: p.id,
+    name: p.name,
+    host: p.host,
+    connected: p.connected,
+    isBot: false,
+    team: p.dcTeam,
+    left: !!p.dcLeft
+  }));
+  const tokens = decryptoTokens(room);
+  const teams = [0, 1].map(t => ({
+    name: DECRYPTO_TEAM_NAMES[t],
+    memberIds: room.players.filter(p => p.dcTeam === t).map(p => p.id),
+    encryptorId: room.gameStarted ? room.dcEncryptors[t] : null,
+    words: room.gameStarted && (reveal || myTeam === t) ? room.dcWords[t] : null,
+    cluesReady: !!(room.dcClues && room.dcClues[t]),
+    intercepts: tokens[t].intercepts,
+    misses: tokens[t].misses
+  }));
+  const amEncryptor = room.gameStarted && myTeam !== null && room.dcEncryptors[myTeam] === socketId;
+  const g = room.dcGuess;
+  const active = room.dcActive;
+  let current = null;
+  if (room.gameStarted && (phase === 'guess' || phase === 'reveal')) {
+    current = {
+      team: active,
+      encryptorId: room.dcEncryptors[active],
+      clues: room.dcClues[active],
+      interceptAllowed: g ? g.interceptAllowed : false,
+      decodeDone: !!(g && g.decode),
+      interceptDone: !!(g && g.intercept),
+      // Your own team's submission is visible to your team; the rest waits for the reveal
+      decode: g && (phase === 'reveal' || myTeam === active) ? g.decode : null,
+      decodeBy: g ? g.decodeBy : null,
+      intercept: g && (phase === 'reveal' || myTeam === 1 - active) ? g.intercept : null,
+      interceptBy: g ? g.interceptBy : null,
+      result: phase === 'reveal' ? room.dcHistory[room.dcHistory.length - 1] : null
+    };
+  }
+  return {
+    roomCode: room.roomCode,
+    gameType: room.gameType,
+    gameStarted: room.gameStarted,
+    gameEnded: room.gameEnded,
+    roundPhase: phase,
+    setupError: room.gameStarted ? null : decryptoSetupError(room),
+    round: room.dcRound || 0,
+    maxRounds: DECRYPTO_MAX_ROUNDS,
+    teams,
+    myTeam,
+    myCode: amEncryptor && phase === 'clue' ? room.dcCodes[myTeam] : (amEncryptor && phase === 'guess' && active === myTeam ? room.dcCodes[myTeam] : null),
+    myCluesDraftNeeded: amEncryptor && phase === 'clue' && !room.dcClues[myTeam],
+    current,
+    dcHistory: room.dcHistory || [],
+    result: room.dcResult || null,
+    players,
+    history: room.history,
+    me: players.find(p => p.id === socketId) || null
+  };
+}
+
+function handleDecryptoDeparture(room, player) {
+  if (!room.gameStarted || room.gameEnded || player.dcLeft) return;
+  player.dcLeft = true;
+  const t = player.dcTeam;
+  if (t !== 0 && t !== 1) return;
+  if (!dcActiveMembers(room, t).length) {
+    endDecryptoGame(room, 1 - t, `${DECRYPTO_TEAM_NAMES[t]}的人都離開了。`);
+    return;
+  }
+  // The encryptor left before writing clues: hand the same code to a teammate
+  if (room.roundPhase === 'clue' && room.dcEncryptors[t] === player.id && !room.dcClues[t]) {
+    room.dcEncryptors[t] = pickDecryptoEncryptor(room, t);
+    addLog(room, 'system', `🔁 改由 ${(dcPlayer(room, room.dcEncryptors[t]) || {}).name} 當${DECRYPTO_TEAM_NAMES[t]}的加密者。`);
+  }
+}
+
+function getDecryptoContext(socket, phase) {
+  const room = getRoomBySocket(socket);
+  if (!room || room.gameType !== 'decrypto' || !room.gameStarted || room.gameEnded) return null;
+  if (phase && room.roundPhase !== phase) return null;
+  const player = dcPlayer(room, socket.id);
+  if (!player || player.dcLeft) return null;
+  return { room, player };
+}
+
+io.on('connection', (socket) => {
+  // Event: Lobby - join the other team
+  socket.on('decrypto_switchTeam', ({ team, targetId } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'decrypto' || room.gameStarted) return;
+    const me = dcPlayer(room, socket.id);
+    if (!me) return;
+    // The host may move other players; everyone else only moves themselves
+    const target = targetId && me.host ? dcPlayer(room, targetId) : me;
+    if (!target || (team !== 0 && team !== 1)) return;
+    target.dcTeam = team;
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Lobby - host shuffles the teams evenly
+  socket.on('decrypto_shuffleTeams', () => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'decrypto' || room.gameStarted) return;
+    const me = dcPlayer(room, socket.id);
+    if (!me || !me.host) return;
+    shuffle([...room.players]).forEach((p, i) => { p.dcTeam = i % 2; });
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Encryptor submits the three clues
+  socket.on('decrypto_clues', ({ clues } = {}) => {
+    const ctx = getDecryptoContext(socket, 'clue');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    const t = player.dcTeam;
+    if (room.dcEncryptors[t] !== player.id || room.dcClues[t]) return;
+    const clean = Array.isArray(clues) ? clues.slice(0, 3).map(c => String(c || '').trim().slice(0, 20)) : [];
+    if (clean.length !== 3 || clean.some(c => !c)) {
+      socket.emit('errorMsg', '三個提示都要填。');
+      return;
+    }
+    room.dcClues[t] = clean;
+    addLog(room, 'system', `✍️ ${player.name} 寫好提示了。`);
+    if (room.dcClues[0] && room.dcClues[1]) {
+      startDecryptoGuessing(room, 0);
+      addLog(room, 'system', `📢 先猜${DECRYPTO_TEAM_NAMES[0]}的密碼，請 ${(dcPlayer(room, room.dcEncryptors[0]) || {}).name} 唸出提示。`);
+    }
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: A team submits its guess (decode own code, or intercept the other team's)
+  socket.on('decrypto_guess', ({ code } = {}) => {
+    const ctx = getDecryptoContext(socket, 'guess');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    const g = room.dcGuess;
+    const t = room.dcActive;
+    if (!isValidDecryptoCode(code)) {
+      socket.emit('errorMsg', '請為每個提示選一個不同的數字。');
+      return;
+    }
+    if (player.dcTeam === t) {
+      if (room.dcEncryptors[t] === player.id || g.decode) return;
+      g.decode = [...code];
+      g.decodeBy = player.id;
+    } else {
+      if (!g.interceptAllowed || g.intercept) return;
+      g.intercept = [...code];
+      g.interceptBy = player.id;
+    }
+    maybeRevealDecrypto(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Move on from the reveal (anyone can press it)
+  socket.on('decrypto_next', () => {
+    const ctx = getDecryptoContext(socket, 'reveal');
+    if (!ctx) return;
+    const { room } = ctx;
+    if (room.dcActive === 0) {
+      startDecryptoGuessing(room, 1);
+      addLog(room, 'system', `📢 換猜${DECRYPTO_TEAM_NAMES[1]}的密碼，請 ${(dcPlayer(room, room.dcEncryptors[1]) || {}).name} 唸出提示。`);
+    } else {
+      finishDecryptoRound(room);
+    }
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host reveals now; a missing decode counts as wrong, a missing intercept as no attempt
+  socket.on('decrypto_forceReveal', () => {
+    const ctx = getDecryptoContext(socket, 'guess');
+    if (!ctx || !ctx.player.host) return;
+    const g = ctx.room.dcGuess;
+    if (!g.decode) g.decode = [0, 0, 0];
+    if (!g.intercept) g.interceptAllowed = false;
+    revealDecrypto(ctx.room);
+    broadcastRoomUpdate(ctx.room);
+  });
+
+  // Event: Host hands the encryptor job to the next teammate (e.g. the encryptor dropped)
+  socket.on('decrypto_reassign', ({ team } = {}) => {
+    const ctx = getDecryptoContext(socket, 'clue');
+    if (!ctx || !ctx.player.host || (team !== 0 && team !== 1)) return;
+    const { room } = ctx;
+    if (room.dcClues[team] || dcActiveMembers(room, team).length < 2) return;
+    room.dcEncryptors[team] = pickDecryptoEncryptor(room, team);
+    addLog(room, 'system', `🔁 房主讓 ${(dcPlayer(room, room.dcEncryptors[team]) || {}).name} 改當${DECRYPTO_TEAM_NAMES[team]}的加密者。`);
+    broadcastRoomUpdate(room);
   });
 });
 
