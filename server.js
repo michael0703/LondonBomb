@@ -2634,14 +2634,18 @@ function checkWhoamiProposal(room) {
   const yes = pr.yesIds.filter(id => voterIds.includes(id)).length;
   const no = pr.noIds.filter(id => voterIds.includes(id)).length;
   const remaining = voterIds.length - yes - no;
+  // With fewer than 3 players nobody else can vote, so the proposer's own agreement is enough
+  const solo = whoamiProposalVoters(room).length === 0;
 
-  if (yes > no + remaining) {
+  if (solo || yes > no + remaining) {
     room.whoamiProposal = null;
     target.celebrity = { id: `custom_${Date.now()}`, name: pr.name, category: `自訂（${proposer ? proposer.name : '?'} 出題）` };
     resetWhoamiPlayer(target);
     room.pendingGuess = null;
     room.roundPhase = 'asking';
-    addLog(room, 'system', `✏️ 投票通過（${yes} 同意／${no} 不同意）！${target.name} 的名人換成自訂題目，題數重新計算。`);
+    addLog(room, 'system', solo
+      ? `✏️ ${proposer ? proposer.name : '?'} 幫 ${target.name} 換成自訂題目（人數少於 3 人，不用投票），題數重新計算。`
+      : `✏️ 投票通過（${yes} 同意／${no} 不同意）！${target.name} 的名人換成自訂題目，題數重新計算。`);
   } else if (yes + remaining <= no) {
     room.whoamiProposal = null;
     addLog(room, 'system', `🙅 自訂題目沒有通過（${yes} 同意／${no} 不同意），${target.name} 的名人不變。`);
@@ -2777,11 +2781,10 @@ io.on('connection', (socket) => {
     }
     room.whoamiProposal = { proposerId: player.id, targetId: active.id, name: celebName, yesIds: [], noIds: [] };
     if (whoamiProposalVoters(room).length === 0) {
-      room.whoamiProposal = null;
-      socket.emit('errorMsg', '除了你和發問者之外沒有其他人可以投票，至少要 3 人才能自訂題目。');
-      return;
+      checkWhoamiProposal(room);
+    } else {
+      addLog(room, 'system', `✏️ ${player.name} 提議幫 ${active.name} 換一個自訂的名人，請其他人投票！`);
     }
-    addLog(room, 'system', `✏️ ${player.name} 提議幫 ${active.name} 換一個自訂的名人，請其他人投票！`);
     broadcastRoomUpdate(room);
   });
 
