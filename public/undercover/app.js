@@ -331,7 +331,7 @@ function renderGameOver(state) {
     });
 
     const me = state.players.find(p => p.id === socket.id);
-    $('btn-restart').style.display = me && me.host ? 'inline-block' : 'none';
+    $('btn-restart').style.display = me ? 'inline-block' : 'none';
     modal.classList.add('active');
 }
 

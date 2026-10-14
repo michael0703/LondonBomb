@@ -172,6 +172,18 @@ function renderPlayers(state, me) {
                 }
             });
             card.appendChild(redraw);
+
+            const skip = el('button', 'btn btn-brass btn-small');
+            skip.appendChild(el('span', null, '⏭️ 跳過'));
+            skip.title = '先換下一位，他的題數會保留，排到最後再繼續';
+            skip.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const who = p.id === socket.id ? '你自己' : p.name;
+                if (confirm(`確定要跳過 ${who} 嗎？已問的題數會保留，排到最後再繼續。`)) {
+                    socket.emit('whoami_skipTurn');
+                }
+            });
+            card.appendChild(skip);
         }
 
         card.addEventListener('click', () => {
@@ -263,7 +275,8 @@ function renderControls(state, me, active) {
 
     if (isMeActive) {
         if (state.roundPhase === 'judging') {
-            spectate(`你猜了「${state.pendingGuess ? state.pendingGuess.text : ''}」，等待其他人判定...`);
+            const n = state.pendingGuess && state.pendingGuess.judgments ? state.pendingGuess.judgments.length : 0;
+            spectate(`你猜了「${state.pendingGuess ? state.pendingGuess.text : ''}」，等待其他人判定...（已有 ${n} 人判定，需要 ${state.judgesNeeded} 人一致）`);
             return '🎯 等待其他人判定你的猜測！';
         }
         $('panel-ask').classList.add('active');
@@ -287,6 +300,13 @@ function renderControls(state, me, active) {
         $('judge-asker').textContent = active.name;
         $('judge-guess').textContent = state.pendingGuess.text;
         $('judge-celebrity').textContent = active.celebrity ? active.celebrity.name : '';
+        const judgments = state.pendingGuess.judgments || [];
+        const mine = judgments.find(j => j.playerId === me.id);
+        const yes = judgments.filter(j => j.correct).length;
+        $('judge-progress').textContent = `需要 ${state.judgesNeeded} 人判定一致：猜對 ${yes}／猜錯 ${judgments.length - yes}`
+            + (mine ? `｜你：${mine.correct ? '猜對了' : '猜錯了'}（可以改）` : '');
+        $('btn-judge-correct').classList.toggle('chosen', !!mine && mine.correct);
+        $('btn-judge-wrong').classList.toggle('chosen', !!mine && !mine.correct);
         return `🎯 ${active.name} 猜「${state.pendingGuess.text}」，請判定對錯！`;
     }
 
@@ -306,6 +326,41 @@ function renderControls(state, me, active) {
 
     spectate(`等待 ${active.name} 發問中...`);
     return `🎤 ${active.name} 正在思考下一個問題（已問 ${active.questionCount} 題）。`;
+}
+
+// CUSTOM CELEBRITY PROPOSAL
+let proposalFormOpen = false;
+
+function renderProposal(state, me, active) {
+    const box = $('proposal-box');
+    const pr = state.proposal;
+    const canPropose = active && me && me.id !== active.id && state.roundPhase === 'asking' && !state.gameEnded;
+    box.style.display = (pr || canPropose) ? 'flex' : 'none';
+    if (!pr && !canPropose) return;
+
+    $('btn-open-proposal').style.display = canPropose && !pr && !proposalFormOpen ? 'block' : 'none';
+    $('proposal-form').style.display = canPropose && !pr && proposalFormOpen ? 'flex' : 'none';
+    $('btn-open-proposal').querySelector('span').textContent = `✏️ 幫 ${active ? active.name : ''} 自創題目`;
+
+    if (!pr) {
+        $('proposal-text').textContent = '';
+        $('proposal-vote-row').style.display = 'none';
+        return;
+    }
+    const proposer = state.players.find(p => p.id === pr.proposerId);
+    const target = state.players.find(p => p.id === pr.targetId);
+    const counts = `同意 ${pr.yesIds.length}／不同意 ${pr.noIds.length}（共 ${pr.voterIds.length} 人可投）`;
+    const myVote = pr.yesIds.includes(socket.id) ? 'yes' : pr.noIds.includes(socket.id) ? 'no' : null;
+    if (pr.targetId === socket.id) {
+        $('proposal-text').textContent = `✏️ ${proposer ? proposer.name : '有人'} 提議幫你換一個自訂的名人，大家投票中...（${counts}）`;
+    } else {
+        $('proposal-text').textContent = `✏️ ${proposer ? proposer.name : '?'} 提議把 ${target ? target.name : '?'} 的名人換成「${pr.name}」：${counts}`
+            + (myVote ? (myVote === 'yes' ? '｜你：同意' : '｜你：不同意') : '');
+    }
+    const canVote = pr.voterIds.includes(socket.id);
+    $('proposal-vote-row').style.display = canVote ? 'flex' : 'none';
+    $('btn-proposal-yes').classList.toggle('chosen', myVote === 'yes');
+    $('btn-proposal-no').classList.toggle('chosen', myVote === 'no');
 }
 
 // GAME OVER RANKING
@@ -339,7 +394,7 @@ function renderGameOver(state) {
     });
 
     const me = state.players.find(p => p.id === socket.id);
-    $('btn-restart').style.display = me && me.host ? 'inline-block' : 'none';
+    $('btn-restart').style.display = me ? 'inline-block' : 'none';
     modal.classList.add('active');
 }
 
@@ -368,6 +423,7 @@ function renderGameBoard(state) {
     renderPlayers(state, me);
     renderQaList(state);
     $('ticker-text').textContent = renderControls(state, me, active);
+    renderProposal(state, me, active);
     renderGameOver(state);
     playStateSounds(state, me, active);
 }
@@ -465,6 +521,31 @@ function initEvents() {
         renderGameBoard(latestState);
     });
     $('input-note').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) sendAnswer('text'); });
+
+    $('btn-open-proposal').addEventListener('click', () => {
+        AudioSynth.playTick();
+        proposalFormOpen = true;
+        renderGameBoard(latestState);
+        $('input-custom-celebrity').focus();
+    });
+    const sendProposal = () => {
+        const name = $('input-custom-celebrity').value.trim();
+        if (!name) return showError('請輸入要出的名人！');
+        AudioSynth.playTick();
+        socket.emit('whoami_proposeCustom', { name });
+        $('input-custom-celebrity').value = '';
+        proposalFormOpen = false;
+    };
+    $('btn-send-proposal').addEventListener('click', sendProposal);
+    $('input-custom-celebrity').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) sendProposal(); });
+    $('btn-proposal-yes').addEventListener('click', () => {
+        AudioSynth.playTick();
+        socket.emit('whoami_voteCustom', { agree: true });
+    });
+    $('btn-proposal-no').addEventListener('click', () => {
+        AudioSynth.playTick();
+        socket.emit('whoami_voteCustom', { agree: false });
+    });
 
     $('btn-judge-correct').addEventListener('click', () => {
         AudioSynth.playTick();

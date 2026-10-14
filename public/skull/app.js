@@ -881,9 +881,8 @@ function renderGameBoard(state, me) {
             displays.finalScoresList.appendChild(li);
         });
         
-        // Show restart option only for host
-        const isHost = me && me.host;
-        buttons.restartGame.style.display = isHost ? 'block' : 'none';
+        // Anyone can bring the table back to the lobby for another game
+        buttons.restartGame.style.display = me ? 'block' : 'none';
         
         displays.gameOverModal.classList.add('active');
     } else {
@@ -897,6 +896,7 @@ socket.on('roomUpdate', (state) => {
     isBiddingInProgress = false;
     // If not started yet, render lobby
     if (!state.gameStarted) {
+        displays.gameOverModal.classList.remove('active');
         switchView('waiting');
         renderWaitingRoom(state);
     } else {

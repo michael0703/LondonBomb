@@ -1226,6 +1226,20 @@ body {
     font-weight: 800;
 }
 
+.proposal-box {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--color-iron);
+}
+
+#panel-judge .btn.chosen,
+.proposal-box .btn.chosen { box-shadow: 0 0 0 3px var(--color-gold-glow); filter: brightness(1.1); }
+
 @media (max-width: 720px) {
     #app-container { padding: 10px; min-height: 100vh; border-radius: 0; }
     .whoami-layout { grid-template-columns: 1fr; }

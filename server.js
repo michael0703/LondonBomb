@@ -192,6 +192,14 @@ function getSanitizedRoomState(room, socketId) {
     return getUndercoverRoomState(room, socketId);
   }
 
+  if (room.gameType === 'mascarade') {
+    return getMascaradeRoomState(room, socketId);
+  }
+
+  if (room.gameType === 'werewolf') {
+    return getWerewolfRoomState(room, socketId);
+  }
+
   const sanitizedPlayers = room.players.map(p => {
     const isSelf = p.id === socketId;
     return {
@@ -337,6 +345,7 @@ function deleteRoom(room) {
   if (rooms.get(room.roomCode) !== room) return;
   if (room.declarationIntervalId) clearInterval(room.declarationIntervalId);
   clearTimeout(room.cleanupTimer);
+  clearTimeout(room.wwDayTimer);
   room.players.forEach(p => {
     clearTimeout(p.disconnectTimer);
     clearTimeout(p.hostTransferTimer);
@@ -394,10 +403,19 @@ function handlePlayerDeparture(room, player, permanent) {
   if (room.gameType === 'undercover' && permanent) {
     handleUndercoverDeparture(room, player);
   }
+  if (room.gameType === 'mascarade' && permanent) {
+    handleMascaradeDeparture(room, player);
+  }
+  if (room.gameType === 'werewolf' && permanent) {
+    handleWerewolfDeparture(room, player);
+  }
 
   if (room.gameType === 'whoami') {
     if (permanent) {
       handleWhoamiDisconnect(room, player);
+      checkWhoamiProposal(room);
+      const asker = room.players.find(p => p.id === room.activePlayerId);
+      if (asker) resolveWhoamiGuess(room, asker);
     } else if (player.whoamiStatus === 'active') {
       // Give the asker a minute to come back before skipping their turn
       player.disconnectTimer = setTimeout(() => {
@@ -615,7 +633,9 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const maxPlayers = room.gameType === 'undercover' ? UNDERCOVER_MAX_PLAYERS : 8;
+    const maxPlayers = room.gameType === 'undercover' ? UNDERCOVER_MAX_PLAYERS
+      : room.gameType === 'mascarade' ? MASCARADE_MAX_PLAYERS
+      : room.gameType === 'werewolf' ? WEREWOLF_MAX_PLAYERS : 8;
     if (room.players.length >= maxPlayers) {
       socket.emit('errorMsg', `房間人數已滿（最多${maxPlayers}人）。`);
       return;
@@ -660,6 +680,14 @@ io.on('connection', (socket) => {
     }
     if (room.gameType === 'undercover') {
       socket.emit('errorMsg', '誰是臥底需要真人描述，無法加入 AI 機器人。');
+      return;
+    }
+    if (room.gameType === 'mascarade') {
+      socket.emit('errorMsg', '化裝舞會需要真人一起玩，無法加入 AI 機器人。');
+      return;
+    }
+    if (room.gameType === 'werewolf') {
+      socket.emit('errorMsg', '一夜終極狼人需要真人一起玩，無法加入 AI 機器人。');
       return;
     }
     const player = room.players.find(p => p.id === socket.id);
@@ -784,6 +812,26 @@ io.on('connection', (socket) => {
         return;
       }
       startUndercoverGame(room);
+      return;
+    }
+
+    if (room.gameType === 'mascarade') {
+      const setupError = mascaradeSetupError(getMascaradeSetup(room));
+      if (setupError) {
+        socket.emit('errorMsg', setupError);
+        return;
+      }
+      startMascaradeGame(room);
+      return;
+    }
+
+    if (room.gameType === 'werewolf') {
+      const setupError = werewolfSetupError(getWerewolfSetup(room));
+      if (setupError) {
+        socket.emit('errorMsg', setupError);
+        return;
+      }
+      startWerewolfGame(room);
       return;
     }
 
@@ -1112,7 +1160,8 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     const player = room.players.find(p => p.id === socket.id);
-    if (!player || !player.host) return;
+    // Mid-game only the host can reset; once the game is over anyone can bring everyone back to the lobby
+    if (!player || (!player.host && !room.gameEnded)) return;
 
     // Reset room state
     room.gameStarted = false;
@@ -1158,6 +1207,12 @@ io.on('connection', (socket) => {
     }
     if (room.gameType === 'undercover') {
       resetUndercoverRoom(room);
+    }
+    if (room.gameType === 'mascarade') {
+      resetMascaradeRoom(room);
+    }
+    if (room.gameType === 'werewolf') {
+      resetWerewolfRoom(room);
     }
 
     addLog(room, 'system', '房主重設了對局，返回候戰室。');
@@ -2364,6 +2419,7 @@ function triggerTopTenBotsReady(room) {
 // (questions asked + 1) guesses in total. Fewest questions wins.
 
 const WHOAMI_ANSWERS = ['yes', 'no', 'unsure', 'text'];
+const WHOAMI_JUDGES_NEEDED = 2;
 
 function drawWhoamiCelebrity(room) {
   if (!room.usedCelebrityIds) room.usedCelebrityIds = [];
@@ -2384,6 +2440,7 @@ function resetWhoamiPlayer(p) {
 }
 
 function resetWhoamiRoom(room) {
+  room.whoamiProposal = null;
   room.whoamiTurnOrder = [];
   room.activePlayerId = null;
   room.pendingGuess = null;
@@ -2439,6 +2496,10 @@ function getWhoamiRoomState(room, socketId) {
     activePlayerId: room.activePlayerId || null,
     turnOrder: room.whoamiTurnOrder || [],
     pendingGuess: room.pendingGuess || null,
+    judgesNeeded: room.pendingGuess && room.activePlayerId
+      ? whoamiJudgesNeeded(room, room.players.find(p => p.id === room.activePlayerId))
+      : 0,
+    proposal: getWhoamiProposalView(room, socketId),
     ranking: room.gameEnded ? getWhoamiRanking(room) : [],
     players,
     history: room.history,
@@ -2469,6 +2530,7 @@ function startWhoamiGame(room) {
 
 function advanceWhoamiTurn(room) {
   room.pendingGuess = null;
+  room.whoamiProposal = null;
   const next = room.whoamiTurnOrder
     .map(id => room.players.find(p => p.id === id))
     .find(p => p && p.whoamiStatus === 'waiting' && p.connected);
@@ -2496,6 +2558,94 @@ function getWhoamiTurnContext(socket, phase) {
   const active = room.players.find(p => p.id === room.activePlayerId);
   if (!player || !active) return null;
   return { room, player, active };
+}
+
+function whoamiJudges(room, active) {
+  return room.players.filter(p => p.id !== active.id && p.connected && p.whoamiStatus !== 'left');
+}
+
+function whoamiJudgesNeeded(room, active) {
+  return Math.min(WHOAMI_JUDGES_NEEDED, Math.max(1, whoamiJudges(room, active).length));
+}
+
+function resolveWhoamiGuess(room, active) {
+  const pending = room.pendingGuess;
+  if (!pending || room.roundPhase !== 'judging') return;
+  const judgeIds = whoamiJudges(room, active).map(p => p.id);
+  const judgments = pending.judgments.filter(j => judgeIds.includes(j.playerId));
+  const needed = whoamiJudgesNeeded(room, active);
+  const yes = judgments.filter(j => j.correct);
+  const no = judgments.filter(j => !j.correct);
+
+  let isCorrect;
+  if (yes.length >= needed) isCorrect = true;
+  else if (no.length >= needed) isCorrect = false;
+  else if (judgments.length >= judgeIds.length) isCorrect = false; // everyone judged but split: not confirmed
+  else return;
+
+  const deciders = (isCorrect ? yes : no).map(j => j.name).join('、') || judgments.map(j => j.name).join('、');
+  active.guesses.push({
+    text: pending.text,
+    correct: isCorrect,
+    judgeName: deciders,
+    afterQuestions: active.questions.length
+  });
+  room.pendingGuess = null;
+
+  if (isCorrect) {
+    active.whoamiStatus = 'solved';
+    addLog(room, 'system', `🎉 ${active.name} 猜對了！是【${active.celebrity.name}】，共問了 ${active.questions.length} 題。（${deciders} 判定）`);
+    advanceWhoamiTurn(room);
+  } else {
+    room.roundPhase = 'asking';
+    addLog(room, 'system', `❌ 猜錯了！（${deciders} 判定）${active.name} 繼續發問。`);
+  }
+}
+
+// Custom celebrity proposals: during A's turn someone else suggests a celebrity
+// for A. Everyone except A and the proposer votes; it passes with more yes than
+// no votes. A never sees the suggested name.
+function whoamiProposalVoters(room) {
+  const pr = room.whoamiProposal;
+  if (!pr) return [];
+  return room.players.filter(p => p.id !== pr.targetId && p.id !== pr.proposerId && p.whoamiStatus !== 'left');
+}
+
+function getWhoamiProposalView(room, socketId) {
+  const pr = room.whoamiProposal;
+  if (!pr) return null;
+  const voters = whoamiProposalVoters(room);
+  return {
+    proposerId: pr.proposerId,
+    targetId: pr.targetId,
+    name: socketId === pr.targetId ? null : pr.name,
+    yesIds: pr.yesIds,
+    noIds: pr.noIds,
+    voterIds: voters.map(p => p.id)
+  };
+}
+
+function checkWhoamiProposal(room) {
+  const pr = room.whoamiProposal;
+  if (!pr) return;
+  const target = room.players.find(p => p.id === pr.targetId);
+  const proposer = room.players.find(p => p.id === pr.proposerId);
+  const voterIds = whoamiProposalVoters(room).filter(p => p.connected).map(p => p.id);
+  const yes = pr.yesIds.filter(id => voterIds.includes(id)).length;
+  const no = pr.noIds.filter(id => voterIds.includes(id)).length;
+  const remaining = voterIds.length - yes - no;
+
+  if (yes > no + remaining) {
+    room.whoamiProposal = null;
+    target.celebrity = { id: `custom_${Date.now()}`, name: pr.name, category: `自訂（${proposer ? proposer.name : '?'} 出題）` };
+    resetWhoamiPlayer(target);
+    room.pendingGuess = null;
+    room.roundPhase = 'asking';
+    addLog(room, 'system', `✏️ 投票通過（${yes} 同意／${no} 不同意）！${target.name} 的名人換成自訂題目，題數重新計算。`);
+  } else if (yes + remaining <= no) {
+    room.whoamiProposal = null;
+    addLog(room, 'system', `🙅 自訂題目沒有通過（${yes} 同意／${no} 不同意），${target.name} 的名人不變。`);
+  }
 }
 
 function handleWhoamiDisconnect(room, player) {
@@ -2576,36 +2726,24 @@ io.on('connection', (socket) => {
       return;
     }
 
-    room.pendingGuess = { text: guess };
+    room.pendingGuess = { text: guess, judgments: [] };
     room.roundPhase = 'judging';
     addLog(room, 'guess', `🎯 ${active.name} 猜：「${guess}」，請其他人判定！`);
     broadcastRoomUpdate(room);
   });
 
-  // Event: Other players judge the pending guess
+  // Event: Other players judge the pending guess. A verdict needs 2 matching
+  // judgments (or 1 if there's only one judge), so one mis-tap can't decide it.
   socket.on('whoami_judge', ({ correct } = {}) => {
     const ctx = getWhoamiTurnContext(socket, 'judging');
     if (!ctx) return;
     const { room, player, active } = ctx;
     if (player.id === active.id || !room.pendingGuess) return;
 
-    const isCorrect = correct === true;
-    active.guesses.push({
-      text: room.pendingGuess.text,
-      correct: isCorrect,
-      judgeName: player.name,
-      afterQuestions: active.questions.length
-    });
-    room.pendingGuess = null;
-
-    if (isCorrect) {
-      active.whoamiStatus = 'solved';
-      addLog(room, 'system', `🎉 ${active.name} 猜對了！是【${active.celebrity.name}】，共問了 ${active.questions.length} 題。（${player.name} 判定）`);
-      advanceWhoamiTurn(room);
-    } else {
-      room.roundPhase = 'asking';
-      addLog(room, 'system', `❌ 猜錯了！（${player.name} 判定）${active.name} 繼續發問。`);
-    }
+    const pending = room.pendingGuess;
+    pending.judgments = pending.judgments.filter(j => j.playerId !== player.id);
+    pending.judgments.push({ playerId: player.id, name: player.name, correct: correct === true });
+    resolveWhoamiGuess(room, active);
     broadcastRoomUpdate(room);
   });
 
@@ -2618,6 +2756,63 @@ io.on('connection', (socket) => {
 
     active.whoamiStatus = 'gaveup';
     addLog(room, 'system', `🏳️ ${active.name} 放棄了，答案是【${active.celebrity.name}】。`);
+    advanceWhoamiTurn(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Someone other than the asker proposes a custom celebrity for them
+  socket.on('whoami_proposeCustom', ({ name } = {}) => {
+    const ctx = getWhoamiTurnContext(socket, 'asking');
+    if (!ctx) return;
+    const { room, player, active } = ctx;
+    if (player.id === active.id) return;
+    if (room.whoamiProposal) {
+      socket.emit('errorMsg', '已經有一個自訂題目在投票中了。');
+      return;
+    }
+    const celebName = String(name || '').trim().slice(0, 30);
+    if (!celebName) {
+      socket.emit('errorMsg', '請輸入要出的名人。');
+      return;
+    }
+    room.whoamiProposal = { proposerId: player.id, targetId: active.id, name: celebName, yesIds: [], noIds: [] };
+    if (whoamiProposalVoters(room).length === 0) {
+      room.whoamiProposal = null;
+      socket.emit('errorMsg', '除了你和發問者之外沒有其他人可以投票，至少要 3 人才能自訂題目。');
+      return;
+    }
+    addLog(room, 'system', `✏️ ${player.name} 提議幫 ${active.name} 換一個自訂的名人，請其他人投票！`);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Vote on the pending custom celebrity proposal
+  socket.on('whoami_voteCustom', ({ agree } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'whoami' || !room.gameStarted || room.gameEnded) return;
+    const pr = room.whoamiProposal;
+    if (!pr || !whoamiProposalVoters(room).some(p => p.id === socket.id)) return;
+    pr.yesIds = pr.yesIds.filter(id => id !== socket.id);
+    pr.noIds = pr.noIds.filter(id => id !== socket.id);
+    (agree === true ? pr.yesIds : pr.noIds).push(socket.id);
+    checkWhoamiProposal(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host skips the current asker; they keep their questions and go to the back of the queue
+  socket.on('whoami_skipTurn', () => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'whoami' || !room.gameStarted || room.gameEnded) return;
+    const host = room.players.find(p => p.id === socket.id);
+    if (!host || !host.host) {
+      socket.emit('errorMsg', '只有房主可以跳過玩家。');
+      return;
+    }
+    const active = room.players.find(p => p.id === room.activePlayerId);
+    if (!active) return;
+
+    active.whoamiStatus = 'waiting';
+    room.whoamiTurnOrder = room.whoamiTurnOrder.filter(id => id !== active.id).concat(active.id);
+    addLog(room, 'system', `⏭️ 房主跳過了 ${active.name}，他已問的 ${active.questions.length} 題會保留，排到最後再繼續。`);
     advanceWhoamiTurn(room);
     broadcastRoomUpdate(room);
   });
@@ -3063,6 +3258,1099 @@ io.on('connection', (socket) => {
       startUndercoverRound(room);
     }
     broadcastRoomUpdate(room);
+  });
+});
+
+// ================= MASCARADE (化裝舞會) GAME ENGINE LOGIC =================
+// Every seat has one face-down character card and 6 coins. On your turn you
+// either swap (or pretend to swap) your card with someone, peek at your own
+// card, or claim to be a character. Others may counter-claim; then everyone
+// involved reveals, liars pay 1 coin to the court and the real one uses the
+// power. Unchallenged claims just work, true or not. First to 13 coins wins;
+// if anyone hits 0 coins, the richest player wins. The table talks in person:
+// phones only hold the secret cards and the buttons.
+
+const MASCARADE_MIN_PLAYERS = 4;
+const MASCARADE_MAX_PLAYERS = 13;
+const MASCARADE_START_COINS = 6;
+const MASCARADE_WIN_COINS = 13;
+const MASCARADE_FORCED_SWAP_TURNS = 4;
+
+const MASCARADE_ROLES = {
+  king: { name: '國王', icon: '👑', desc: '從銀行拿 3 金幣。' },
+  queen: { name: '皇后', icon: '👸', desc: '從銀行拿 2 金幣。' },
+  judge: { name: '法官', icon: '⚖️', desc: '拿走法院裡所有的金幣。' },
+  bishop: { name: '主教', icon: '⛪', desc: '從最有錢的玩家（不含自己）拿 2 金幣。' },
+  thief: { name: '小偷', icon: '🦹', desc: '從左右兩邊的玩家各拿 1 金幣。' },
+  witch: { name: '女巫', icon: '🧙', desc: '可以把自己全部的金幣和另一位玩家互換。' },
+  cheat: { name: '騙子', icon: '🃏', desc: '有 10 枚以上金幣時直接獲勝。' },
+  peasant: { name: '農夫', icon: '👨‍🌾', desc: '拿 1 金幣；兩個農夫一起亮牌的話各拿 2 金幣。' },
+  spy: { name: '間諜', icon: '🕵️', desc: '偷看自己和另一張牌，再決定要不要交換。' },
+  fool: { name: '愚者', icon: '🤡', desc: '拿 1 金幣，並可以交換（或假裝交換）另外兩位玩家的牌，自己不能看。' },
+  inquisitor: { name: '審判官', icon: '🔥', desc: '指定一位玩家猜自己的角色，猜錯要付你 4 金幣。' },
+  widow: { name: '寡婦', icon: '🖤', desc: '從銀行拿金幣，直到自己有 10 枚。' }
+};
+
+// Recommended character sets by player count (4-5 players use 6 cards, the extras go face-down in the middle)
+const MASCARADE_BASE_SET = ['king', 'queen', 'judge', 'bishop', 'thief', 'witch'];
+function defaultMascaradeSet(playerCount) {
+  const set = [...MASCARADE_BASE_SET];
+  if (playerCount === 7) set.push('cheat');
+  if (playerCount === 8) set.push('peasant');
+  if (playerCount >= 9) set.push('cheat', 'peasant');
+  if (playerCount >= 10) set.push('spy');
+  if (playerCount >= 11) set.push('fool');
+  if (playerCount >= 12) set.push('inquisitor');
+  if (playerCount >= 13) set.push('widow');
+  return set;
+}
+
+// A role set lists each role once; the peasant always comes as a pair of cards
+function mascaradeCardsFor(roleSet) {
+  return roleSet.flatMap(r => (r === 'peasant' ? ['peasant', 'peasant'] : [r]));
+}
+
+function getMascaradeSetup(room) {
+  const total = room.players.length;
+  const settings = room.msSettings || {};
+  const roles = Array.isArray(settings.roles) ? settings.roles : defaultMascaradeSet(total);
+  const cardsNeeded = Math.max(total, 6);
+  return {
+    total,
+    roles,
+    auto: !Array.isArray(settings.roles),
+    keepLog: !!settings.keepLog,
+    cardCount: mascaradeCardsFor(roles).length,
+    cardsNeeded,
+    centerCount: cardsNeeded - total
+  };
+}
+
+function mascaradeSetupError(setup) {
+  if (setup.total < MASCARADE_MIN_PLAYERS || setup.total > MASCARADE_MAX_PLAYERS) {
+    return `化裝舞會需要 ${MASCARADE_MIN_PLAYERS} 到 ${MASCARADE_MAX_PLAYERS} 名玩家才能開始。`;
+  }
+  if (setup.cardCount !== setup.cardsNeeded) {
+    return `角色牌要剛好 ${setup.cardsNeeded} 張（農夫算 2 張），目前是 ${setup.cardCount} 張。`;
+  }
+  return null;
+}
+
+function resetMascaradeRoom(room) {
+  room.msCenter = [];
+  room.msCourt = 0;
+  room.msTurn = 0;
+  room.activePlayerId = null;
+  room.msClaim = null;
+  room.msAbility = null;
+  room.msResult = null;
+  room.msLastAction = null;
+  room.msRevealLog = [];
+  room.msWinners = [];
+  room.players.forEach(p => {
+    p.msCard = null;
+    p.msCoins = 0;
+    p.msLeft = false;
+  });
+}
+
+const msRoleName = (role) => (MASCARADE_ROLES[role] ? `${MASCARADE_ROLES[role].icon}${MASCARADE_ROLES[role].name}` : '?');
+
+function msPlayer(room, id) {
+  return room.players.find(p => p.id === id);
+}
+
+// Cards can sit with a player or face-down in the middle ("center0", "center1")
+function msTargetLabel(room, targetId) {
+  if (String(targetId).startsWith('center')) return `中間第 ${Number(String(targetId).slice(6)) + 1} 張牌`;
+  const p = msPlayer(room, targetId);
+  return p ? p.name : '?';
+}
+
+function msGetCard(room, targetId) {
+  if (String(targetId).startsWith('center')) return room.msCenter[Number(String(targetId).slice(6))];
+  const p = msPlayer(room, targetId);
+  return p ? p.msCard : undefined;
+}
+
+function msSetCard(room, targetId, card) {
+  if (String(targetId).startsWith('center')) room.msCenter[Number(String(targetId).slice(6))] = card;
+  else msPlayer(room, targetId).msCard = card;
+}
+
+function msValidTarget(room, targetId, excludeIds = []) {
+  if (excludeIds.includes(targetId)) return false;
+  if (String(targetId).startsWith('center')) {
+    const idx = Number(String(targetId).slice(6));
+    return Number.isInteger(idx) && idx >= 0 && idx < room.msCenter.length;
+  }
+  const p = msPlayer(room, targetId);
+  return !!p && !p.msLeft;
+}
+
+function msSwapCards(room, a, b) {
+  const cardA = msGetCard(room, a);
+  msSetCard(room, a, msGetCard(room, b));
+  msSetCard(room, b, cardA);
+}
+
+function msActivePlayers(room) {
+  return room.players.filter(p => !p.msLeft);
+}
+
+function getMascaradeRoomState(room, socketId) {
+  const viewer = msPlayer(room, socketId);
+  const revealAll = room.gameEnded || room.roundPhase === 'intro';
+  const ability = room.msAbility;
+  const setup = getMascaradeSetup(room);
+
+  const players = room.players.map(p => ({
+    id: p.id,
+    name: p.name,
+    host: p.host,
+    connected: p.connected,
+    isBot: false,
+    left: !!p.msLeft,
+    coins: p.msCoins || 0,
+    card: revealAll ? p.msCard : null
+  }));
+
+  // Only the spy sees what they peeked at
+  let spyView = null;
+  if (ability && ability.type === 'spy' && ability.playerId === socketId && ability.targetId) {
+    spyView = {
+      ownRole: viewer ? viewer.msCard : null,
+      targetId: ability.targetId,
+      targetLabel: msTargetLabel(room, ability.targetId),
+      targetRole: msGetCard(room, ability.targetId)
+    };
+  }
+
+  return {
+    roomCode: room.roomCode,
+    gameType: room.gameType,
+    gameStarted: room.gameStarted,
+    gameEnded: room.gameEnded,
+    roundPhase: room.roundPhase,
+    setup: { ...setup, error: mascaradeSetupError(setup), defaultRoles: defaultMascaradeSet(setup.total) },
+    roleInfo: MASCARADE_ROLES,
+    rolesInGame: room.gameStarted ? (room.msRolesInGame || []) : setup.roles,
+    center: (room.msCenter || []).map((card, i) => ({ id: `center${i}`, card: revealAll ? card : null })),
+    court: room.msCourt || 0,
+    turn: room.msTurn || 0,
+    forcedSwap: (room.msTurn || 0) < MASCARADE_FORCED_SWAP_TURNS,
+    forcedSwapTurns: MASCARADE_FORCED_SWAP_TURNS,
+    winCoins: MASCARADE_WIN_COINS,
+    activePlayerId: room.activePlayerId || null,
+    claim: room.msClaim ? {
+      claimerId: room.msClaim.claimerId,
+      role: room.msClaim.role,
+      challengerIds: room.msClaim.responses.filter(r => r.challenge).map(r => r.id),
+      respondedIds: room.msClaim.responses.map(r => r.id),
+      responderIds: msClaimResponders(room).map(p => p.id)
+    } : null,
+    ability: ability ? {
+      type: ability.type,
+      playerId: ability.playerId,
+      options: ability.options || null,
+      targetId: ability.targetId || null
+    } : null,
+    spyView,
+    result: room.msResult || null,
+    lastAction: room.msLastAction || null,
+    revealLog: setup.keepLog ? (room.msRevealLog || []) : [],
+    winners: room.msWinners || [],
+    players,
+    history: room.history,
+    me: players.find(p => p.id === socketId) || null
+  };
+}
+
+function startMascaradeGame(room) {
+  const setup = getMascaradeSetup(room);
+  room.gameStarted = true;
+  room.gameEnded = false;
+  room.winnerTeam = null;
+  room.history = [];
+  resetMascaradeRoom(room);
+
+  room.msRolesInGame = [...setup.roles];
+  const cards = shuffle(mascaradeCardsFor(setup.roles));
+  room.players.forEach((p, i) => {
+    p.msCard = cards[i];
+    p.msCoins = MASCARADE_START_COINS;
+  });
+  room.msCenter = cards.slice(room.players.length);
+
+  const first = room.players[Math.floor(Math.random() * room.players.length)];
+  room.activePlayerId = first.id;
+  room.roundPhase = 'intro';
+  addLog(room, 'system', `🎭 化裝舞會開始！先記住大家一開始的角色，房主按下「蓋牌」後由【${first.name}】先開始。`);
+  broadcastRoomUpdate(room);
+}
+
+function msNextTurn(room) {
+  room.msTurn += 1;
+  room.msClaim = null;
+  room.msAbility = null;
+  room.msResult = null;
+  const seats = room.players;
+  const idx = seats.findIndex(p => p.id === room.activePlayerId);
+  for (let step = 1; step <= seats.length; step++) {
+    const next = seats[(idx + step) % seats.length];
+    if (!next.msLeft) {
+      room.activePlayerId = next.id;
+      break;
+    }
+  }
+  room.roundPhase = 'action';
+}
+
+// Everyone except the claimer gets to counter-claim (players who left are skipped)
+function msClaimResponders(room) {
+  const claim = room.msClaim;
+  if (!claim) return [];
+  return room.players.filter(p => p.id !== claim.claimerId && !p.msLeft);
+}
+
+function msPay(from, to, amount) {
+  const paid = Math.min(amount, from.msCoins);
+  from.msCoins -= paid;
+  to.msCoins += paid;
+  return paid;
+}
+
+function msCheckGameEnd(room, cheatWinnerId) {
+  let winners = [];
+  const active = msActivePlayers(room);
+  if (cheatWinnerId) {
+    winners = [cheatWinnerId];
+  } else {
+    const rich = active.filter(p => p.msCoins >= MASCARADE_WIN_COINS);
+    const broke = active.some(p => p.msCoins <= 0);
+    if (rich.length || broke) {
+      const max = Math.max(...active.map(p => p.msCoins));
+      winners = active.filter(p => p.msCoins === max).map(p => p.id);
+    }
+  }
+  if (!winners.length) return false;
+  room.msWinners = winners;
+  room.gameEnded = true;
+  room.roundPhase = 'game_over';
+  const names = winners.map(id => msPlayer(room, id).name).join('、');
+  addLog(room, 'system', cheatWinnerId ? `🃏 ${names} 是真正的騙子，帶著 10 枚以上金幣獲勝！` : `🏆 遊戲結束！${names} 獲勝！`);
+  return true;
+}
+
+function resolveMascaradeClaim(room) {
+  const claim = room.msClaim;
+  const role = claim.role;
+  const claimer = msPlayer(room, claim.claimerId);
+  // Claimer first, then counter-claimers in seat order after them
+  const seats = room.players;
+  const start = seats.indexOf(claimer);
+  const ordered = [...seats.slice(start), ...seats.slice(0, start)];
+  const claimants = ordered.filter(p => p.id === claimer.id || claim.responses.some(r => r.id === p.id && r.challenge));
+
+  const result = { type: 'claim', claimerId: claimer.id, role, reveals: [], effects: [] };
+  room.msResult = result;
+  let performers;
+  if (claimants.length === 1) {
+    performers = [claimer];
+    result.effects.push(`沒有人質疑，${claimer.name} 以${msRoleName(role)}的身分發動能力（不用亮牌）。`);
+  } else {
+    result.reveals = claimants.map(p => ({ id: p.id, name: p.name, role: p.msCard, truthful: p.msCard === role }));
+    if (room.msSettings && room.msSettings.keepLog) {
+      room.msRevealLog.push({ turn: room.msTurn + 1, claimRole: role, entries: result.reveals.map(r => ({ name: r.name, role: r.role })) });
+    }
+    performers = claimants.filter(p => p.msCard === role);
+    claimants.filter(p => p.msCard !== role).forEach(p => {
+      const paid = Math.min(1, p.msCoins);
+      p.msCoins -= paid;
+      room.msCourt += paid;
+      result.effects.push(`${p.name} 說謊，付 ${paid} 金幣到法院。`);
+    });
+    if (!performers.length) result.effects.push(`沒有人是真的${msRoleName(role)}，能力不發動。`);
+  }
+  addLog(room, 'claim', claimants.length === 1
+    ? `📢 ${claimer.name} 宣告自己是${msRoleName(role)}，沒有人質疑。`
+    : `📢 ${claimer.name} 宣告自己是${msRoleName(role)}，${claimants.slice(1).map(p => p.name).join('、')} 跳出來說自己才是！全部亮牌。`);
+
+  // Apply the power; some powers need the performer to pick something first
+  const bothPeasants = role === 'peasant' && performers.length === 2;
+  for (const p of performers) {
+    if (applyMascaradePower(room, p, role, { bothPeasants })) return; // waiting for a choice
+  }
+  finishMascaradeClaim(room);
+}
+
+// Returns true if the power needs a follow-up choice from the performer
+function applyMascaradePower(room, p, role, { bothPeasants } = {}) {
+  const fx = room.msResult.effects;
+  const others = msActivePlayers(room).filter(o => o.id !== p.id);
+  switch (role) {
+    case 'king':
+      p.msCoins += 3; fx.push(`${p.name} 拿了 3 金幣。`); return false;
+    case 'queen':
+      p.msCoins += 2; fx.push(`${p.name} 拿了 2 金幣。`); return false;
+    case 'judge': {
+      const amount = room.msCourt;
+      p.msCoins += amount; room.msCourt = 0;
+      fx.push(`${p.name} 拿走法院的 ${amount} 金幣。`); return false;
+    }
+    case 'widow': {
+      const gain = Math.max(0, 10 - p.msCoins);
+      p.msCoins += gain; fx.push(`${p.name} 補到 10 枚金幣（拿了 ${gain} 枚）。`); return false;
+    }
+    case 'peasant': {
+      const gain = bothPeasants ? 2 : 1;
+      p.msCoins += gain; fx.push(`${p.name} 拿了 ${gain} 金幣。`); return false;
+    }
+    case 'cheat':
+      if (p.msCoins >= 10) {
+        room.msResult.cheatWinnerId = p.id;
+        fx.push(`${p.name} 有 ${p.msCoins} 枚金幣，騙子直接獲勝！`);
+      } else {
+        fx.push(`${p.name} 只有 ${p.msCoins} 枚金幣，騙子要 10 枚以上才能獲勝。`);
+      }
+      return false;
+    case 'thief': {
+      const seats = msActivePlayers(room);
+      const i = seats.indexOf(p);
+      const neighbours = [...new Set([seats[(i - 1 + seats.length) % seats.length], seats[(i + 1) % seats.length]])].filter(o => o !== p);
+      neighbours.forEach(o => {
+        const paid = msPay(o, p, 1);
+        fx.push(`${p.name} 從 ${o.name} 那裡偷了 ${paid} 金幣。`);
+      });
+      return false;
+    }
+    case 'bishop': {
+      const max = Math.max(...others.map(o => o.msCoins));
+      const richest = others.filter(o => o.msCoins === max);
+      if (richest.length === 1) {
+        const paid = msPay(richest[0], p, 2);
+        fx.push(`${p.name} 從最有錢的 ${richest[0].name} 那裡拿了 ${paid} 金幣。`);
+        return false;
+      }
+      room.msAbility = { type: 'bishop', playerId: p.id, options: richest.map(o => o.id) };
+      room.roundPhase = 'ability';
+      return true;
+    }
+    case 'witch':
+      room.msAbility = { type: 'witch', playerId: p.id, options: others.map(o => o.id) };
+      room.roundPhase = 'ability';
+      return true;
+    case 'spy':
+      room.msAbility = {
+        type: 'spy',
+        playerId: p.id,
+        options: [...others.map(o => o.id), ...room.msCenter.map((_, i) => `center${i}`)],
+        targetId: null
+      };
+      room.roundPhase = 'ability';
+      return true;
+    case 'fool':
+      p.msCoins += 1;
+      fx.push(`${p.name} 拿了 1 金幣。`);
+      room.msAbility = { type: 'fool', playerId: p.id, options: others.map(o => o.id) };
+      room.roundPhase = 'ability';
+      return true;
+    case 'inquisitor':
+      room.msAbility = { type: 'inquisitor', playerId: p.id, options: others.map(o => o.id), targetId: null };
+      room.roundPhase = 'ability';
+      return true;
+    default:
+      return false;
+  }
+}
+
+function finishMascaradeClaim(room) {
+  room.msAbility = null;
+  room.roundPhase = 'result';
+  msCheckGameEnd(room, room.msResult && room.msResult.cheatWinnerId);
+}
+
+function msSetLastAction(room, text) {
+  room.msLastAction = text;
+  addLog(room, 'action', text);
+}
+
+// A player who leaves for good keeps their seat (cards stay in play) but is skipped
+function handleMascaradeDeparture(room, player) {
+  if (room.gameEnded || player.msLeft) return;
+  player.msLeft = true;
+  if (msActivePlayers(room).length < 2) {
+    // Not enough people left to play on: the richest remaining player wins
+    const remaining = msActivePlayers(room);
+    const max = Math.max(...remaining.map(p => p.msCoins));
+    room.msWinners = remaining.filter(p => p.msCoins === max).map(p => p.id);
+    room.gameEnded = true;
+    room.roundPhase = 'game_over';
+    addLog(room, 'system', '🏁 剩下的人不夠繼續，遊戲結束。');
+    return;
+  }
+  if (room.roundPhase === 'claim') {
+    maybeResolveMascaradeClaim(room);
+  } else if (room.roundPhase === 'ability' && room.msAbility && (room.msAbility.playerId === player.id || room.msAbility.targetId === player.id)) {
+    room.msResult.effects.push(`${player.name} 離開了，能力取消。`);
+    finishMascaradeClaim(room);
+  } else if (room.activePlayerId === player.id && room.roundPhase === 'action') {
+    msNextTurn(room);
+  }
+}
+
+function maybeResolveMascaradeClaim(room) {
+  if (room.roundPhase !== 'claim' || !room.msClaim) return;
+  const waiting = msClaimResponders(room).filter(p => p.connected && !room.msClaim.responses.some(r => r.id === p.id));
+  if (waiting.length === 0) resolveMascaradeClaim(room);
+}
+
+function getMascaradeContext(socket, phase) {
+  const room = getRoomBySocket(socket);
+  if (!room || room.gameType !== 'mascarade' || !room.gameStarted || room.gameEnded) return null;
+  if (phase && room.roundPhase !== phase) return null;
+  const player = msPlayer(room, socket.id);
+  if (!player || player.msLeft) return null;
+  return { room, player };
+}
+
+io.on('connection', (socket) => {
+  // Event: Host changes lobby settings (role set / keep reveal log)
+  socket.on('mascarade_settings', ({ roles, keepLog } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'mascarade' || room.gameStarted) return;
+    const player = msPlayer(room, socket.id);
+    if (!player || !player.host) return;
+    if (!room.msSettings) room.msSettings = { roles: null, keepLog: false };
+    if (roles === null) room.msSettings.roles = null; // back to the recommended set
+    else if (Array.isArray(roles)) {
+      room.msSettings.roles = [...new Set(roles.filter(r => MASCARADE_ROLES[r]))];
+    }
+    if (typeof keepLog === 'boolean') room.msSettings.keepLog = keepLog;
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host ends the opening look at everyone's cards
+  socket.on('mascarade_beginPlay', () => {
+    const ctx = getMascaradeContext(socket, 'intro');
+    if (!ctx || !ctx.player.host) return;
+    ctx.room.roundPhase = 'action';
+    addLog(ctx.room, 'system', '🙈 大家蓋牌了！遊戲開始。');
+    broadcastRoomUpdate(ctx.room);
+  });
+
+  // Event: Swap (or pretend to swap) your card with another card
+  socket.on('mascarade_swap', ({ targetId, doSwap } = {}) => {
+    const ctx = getMascaradeContext(socket, 'action');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (room.activePlayerId !== player.id) return;
+    if (!msValidTarget(room, targetId, [player.id])) return;
+    if (doSwap === true) msSwapCards(room, player.id, targetId);
+    msSetLastAction(room, `🔄 ${player.name} 拿了自己和 ${msTargetLabel(room, targetId)} 的牌，交換了…或假裝交換。`);
+    msNextTurn(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Peek at your own card (shown privately for a few seconds)
+  socket.on('mascarade_look', () => {
+    const ctx = getMascaradeContext(socket, 'action');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (room.activePlayerId !== player.id) return;
+    if (room.msTurn < MASCARADE_FORCED_SWAP_TURNS) {
+      socket.emit('errorMsg', `前 ${MASCARADE_FORCED_SWAP_TURNS} 回合只能交換。`);
+      return;
+    }
+    socket.emit('mascarade_peek', { cards: [{ label: '你的牌', role: player.msCard }] });
+    msSetLastAction(room, `👀 ${player.name} 偷看了自己的牌。`);
+    msNextTurn(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Claim to be a character
+  socket.on('mascarade_claim', ({ role } = {}) => {
+    const ctx = getMascaradeContext(socket, 'action');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (room.activePlayerId !== player.id) return;
+    if (room.msTurn < MASCARADE_FORCED_SWAP_TURNS) {
+      socket.emit('errorMsg', `前 ${MASCARADE_FORCED_SWAP_TURNS} 回合只能交換。`);
+      return;
+    }
+    if (!room.msRolesInGame.includes(role)) return;
+    room.msClaim = { claimerId: player.id, role, responses: [] };
+    room.roundPhase = 'claim';
+    room.msLastAction = `📢 ${player.name} 宣告：「我是${msRoleName(role)}！」`;
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Others respond to a claim: counter-claim ("No, I am!") or let it go
+  socket.on('mascarade_respond', ({ challenge } = {}) => {
+    const ctx = getMascaradeContext(socket, 'claim');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    const claim = room.msClaim;
+    if (!claim || player.id === claim.claimerId) return;
+    if (claim.responses.some(r => r.id === player.id)) return; // answers are final, like saying it out loud
+    claim.responses.push({ id: player.id, challenge: challenge === true });
+    maybeResolveMascaradeClaim(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host stops waiting for players who haven't responded
+  socket.on('mascarade_forceResolve', () => {
+    const ctx = getMascaradeContext(socket, 'claim');
+    if (!ctx || !ctx.player.host) return;
+    resolveMascaradeClaim(ctx.room);
+    broadcastRoomUpdate(ctx.room);
+  });
+
+  // Event: Performer makes the choice their power needs
+  socket.on('mascarade_ability', ({ targetId, targetIds, doSwap, skip } = {}) => {
+    const ctx = getMascaradeContext(socket, 'ability');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    const ab = room.msAbility;
+    if (!ab || ab.playerId !== player.id) return;
+    const fx = room.msResult.effects;
+
+    if (ab.type === 'bishop') {
+      if (!ab.options.includes(targetId)) return;
+      const target = msPlayer(room, targetId);
+      const paid = msPay(target, player, 2);
+      fx.push(`${player.name} 從最有錢的 ${target.name} 那裡拿了 ${paid} 金幣。`);
+      finishMascaradeClaim(room);
+    } else if (ab.type === 'witch') {
+      if (skip === true) {
+        fx.push(`${player.name} 決定不交換金幣。`);
+      } else {
+        if (!ab.options.includes(targetId)) return;
+        const target = msPlayer(room, targetId);
+        [player.msCoins, target.msCoins] = [target.msCoins, player.msCoins];
+        fx.push(`${player.name} 和 ${target.name} 交換了全部金幣（${target.msCoins} ⇄ ${player.msCoins}）。`);
+      }
+      finishMascaradeClaim(room);
+    } else if (ab.type === 'spy') {
+      if (!ab.targetId) {
+        if (!ab.options.includes(targetId)) return;
+        ab.targetId = targetId; // spy now sees both cards in their own state
+      } else {
+        if (doSwap === true) msSwapCards(room, player.id, ab.targetId);
+        fx.push(`${player.name} 偷看了自己和 ${msTargetLabel(room, ab.targetId)} 的牌，交換了…或假裝交換。`);
+        finishMascaradeClaim(room);
+      }
+    } else if (ab.type === 'fool') {
+      if (skip === true) {
+        fx.push(`${player.name} 沒有動別人的牌。`);
+      } else {
+        if (!Array.isArray(targetIds) || targetIds.length !== 2 || targetIds[0] === targetIds[1]) return;
+        if (!targetIds.every(id => ab.options.includes(id))) return;
+        if (doSwap === true) msSwapCards(room, targetIds[0], targetIds[1]);
+        fx.push(`${player.name} 拿了 ${msTargetLabel(room, targetIds[0])} 和 ${msTargetLabel(room, targetIds[1])} 的牌，交換了…或假裝交換。`);
+      }
+      finishMascaradeClaim(room);
+    } else if (ab.type === 'inquisitor') {
+      if (ab.targetId || !ab.options.includes(targetId)) return;
+      ab.targetId = targetId;
+      ab.type = 'inquisition';
+      fx.push(`${player.name} 指定 ${msPlayer(room, targetId).name} 猜自己的角色。`);
+    }
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: The player picked by the inquisitor guesses their own character
+  socket.on('mascarade_inquisitionGuess', ({ role } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'mascarade' || room.roundPhase !== 'ability') return;
+    const ab = room.msAbility;
+    if (!ab || ab.type !== 'inquisition' || ab.targetId !== socket.id) return;
+    if (!room.msRolesInGame.includes(role)) return;
+    const target = msPlayer(room, socket.id);
+    const inquisitor = msPlayer(room, ab.playerId);
+    const fx = room.msResult.effects;
+    const correct = target.msCard === role;
+    room.msResult.reveals.push({ id: target.id, name: target.name, role: target.msCard, truthful: correct });
+    if (room.msSettings && room.msSettings.keepLog) {
+      room.msRevealLog.push({ turn: room.msTurn + 1, claimRole: 'inquisitor', entries: [{ name: target.name, role: target.msCard }] });
+    }
+    if (correct) {
+      fx.push(`${target.name} 猜自己是${msRoleName(role)}，猜對了！`);
+    } else {
+      const paid = msPay(target, inquisitor, 4);
+      fx.push(`${target.name} 猜自己是${msRoleName(role)}，猜錯了，付給 ${inquisitor.name} ${paid} 金幣。`);
+    }
+    finishMascaradeClaim(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Move on from the claim result (the claimer or the host)
+  socket.on('mascarade_continue', () => {
+    const ctx = getMascaradeContext(socket, 'result');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (!player.host && room.activePlayerId !== player.id) return;
+    msNextTurn(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host cancels a power that is stuck waiting on someone who is away
+  socket.on('mascarade_cancelAbility', () => {
+    const ctx = getMascaradeContext(socket, 'ability');
+    if (!ctx || !ctx.player.host) return;
+    ctx.room.msResult.effects.push('房主取消了這次的能力。');
+    finishMascaradeClaim(ctx.room);
+    broadcastRoomUpdate(ctx.room);
+  });
+
+  // Event: Host skips a player who is away
+  socket.on('mascarade_skipTurn', () => {
+    const ctx = getMascaradeContext(socket, 'action');
+    if (!ctx || !ctx.player.host) return;
+    const { room } = ctx;
+    const active = msPlayer(room, room.activePlayerId);
+    msSetLastAction(room, `⏭️ 房主跳過了 ${active ? active.name : '?'} 的回合。`);
+    msNextTurn(room);
+    broadcastRoomUpdate(room);
+  });
+});
+
+// ================= ONE NIGHT WEREWOLF (一夜終極狼人) GAME ENGINE LOGIC =================
+// Cards = players + 3 (three face down in the middle). There is one night:
+// everyone does their night action on their phone at the same time and the
+// server applies the card moves in the official order (robber, troublemaker,
+// drunk), so phones never reveal who woke up. Then the table talks face to
+// face, everyone votes once, and teams are judged by the cards people end with.
+
+const WEREWOLF_MIN_PLAYERS = 3;
+const WEREWOLF_MAX_PLAYERS = 10;
+const WEREWOLF_CENTER = 3;
+
+const WEREWOLF_ROLES = {
+  werewolf: { name: '狼人', icon: '🐺', team: 'werewolf', max: 2, desc: '晚上和其他狼人互相確認。只有你一隻狼人的話，可以偷看中間 1 張牌。' },
+  minion: { name: '爪牙', icon: '😈', team: 'werewolf', max: 1, desc: '晚上看得到誰是狼人（狼人不知道你）。和狼人同一陣營，你死了但狼人沒死，狼人陣營也算贏。' },
+  mason: { name: '守夜人', icon: '👷', team: 'village', max: 2, desc: '晚上和另一位守夜人互相確認。' },
+  seer: { name: '預言家', icon: '🔮', team: 'village', max: 1, desc: '晚上偷看一位玩家的牌，或中間 2 張牌。' },
+  robber: { name: '強盜', icon: '🦹', team: 'village', max: 1, desc: '晚上可以和一位玩家換牌，並看自己換到什麼，之後就是那個身分。' },
+  troublemaker: { name: '搗蛋鬼', icon: '🃏', team: 'village', max: 1, desc: '晚上可以交換另外兩位玩家的牌，自己不能看。' },
+  drunk: { name: '酒鬼', icon: '🍺', team: 'village', max: 1, desc: '晚上一定要拿自己的牌和中間 1 張交換，不能看。' },
+  insomniac: { name: '失眠者', icon: '😴', team: 'village', max: 1, desc: '天亮前看自己最後的牌。' },
+  hunter: { name: '獵人', icon: '🏹', team: 'village', max: 1, desc: '沒有夜晚行動。你被票死的話，你投的那個人也一起死。' },
+  tanner: { name: '皮匠', icon: '🪡', team: 'tanner', max: 1, desc: '你討厭這份工作。沒有夜晚行動，被票死你就單獨獲勝。' },
+  villager: { name: '村民', icon: '🙂', team: 'village', max: 3, desc: '沒有特殊能力，靠推理找出狼人。' }
+};
+const WEREWOLF_ROLE_ORDER = ['werewolf', 'minion', 'mason', 'seer', 'robber', 'troublemaker', 'drunk', 'insomniac', 'hunter', 'tanner', 'villager'];
+
+function defaultWerewolfCounts(playerCount) {
+  const c = { werewolf: 2, seer: 1, robber: 1, troublemaker: 1, villager: 1 };
+  if (playerCount >= 4) c.drunk = 1;
+  if (playerCount >= 5) c.insomniac = 1;
+  if (playerCount >= 6) c.minion = 1;
+  if (playerCount >= 7) c.hunter = 1;
+  if (playerCount >= 8) c.tanner = 1;
+  if (playerCount >= 9) { c.mason = 2; c.villager = 0; }
+  if (playerCount >= 10) c.villager = 1;
+  return c;
+}
+
+function werewolfCardList(counts) {
+  return WEREWOLF_ROLE_ORDER.flatMap(r => Array(counts[r] || 0).fill(r));
+}
+
+function getWerewolfSetup(room) {
+  const total = room.players.length;
+  const settings = room.wwSettings || {};
+  const counts = settings.counts || defaultWerewolfCounts(total);
+  const cards = werewolfCardList(counts);
+  return {
+    total,
+    counts,
+    auto: !settings.counts,
+    cardCount: cards.length,
+    cardsNeeded: total + WEREWOLF_CENTER,
+    discussMinutes: settings.discussMinutes || 5
+  };
+}
+
+function werewolfSetupError(setup) {
+  if (setup.total < WEREWOLF_MIN_PLAYERS || setup.total > WEREWOLF_MAX_PLAYERS) {
+    return `一夜終極狼人需要 ${WEREWOLF_MIN_PLAYERS} 到 ${WEREWOLF_MAX_PLAYERS} 名玩家才能開始。`;
+  }
+  if (setup.cardCount !== setup.cardsNeeded) {
+    return `身分牌要剛好 ${setup.cardsNeeded} 張（人數＋3），目前是 ${setup.cardCount} 張。`;
+  }
+  if (!setup.counts.werewolf) return '至少要有 1 張狼人。';
+  return null;
+}
+
+function resetWerewolfRoom(room) {
+  clearTimeout(room.wwDayTimer);
+  room.wwDayTimer = null;
+  room.wwCenterStart = [];
+  room.wwCenter = [];
+  room.wwNightLog = [];
+  room.wwVotes = [];
+  room.wwDayEndsAt = null;
+  room.wwResult = null;
+  room.players.forEach(p => {
+    p.wwStart = null;
+    p.wwCard = null;
+    p.wwNightDone = false;
+    p.wwNightAction = null;
+    p.wwNightInfo = [];
+    p.wwLeft = false;
+  });
+}
+
+const wwRoleName = (role) => (WEREWOLF_ROLES[role] ? `${WEREWOLF_ROLES[role].icon}${WEREWOLF_ROLES[role].name}` : '?');
+const wwPlayer = (room, id) => room.players.find(p => p.id === id);
+
+function startWerewolfGame(room) {
+  const setup = getWerewolfSetup(room);
+  room.gameStarted = true;
+  room.gameEnded = false;
+  room.winnerTeam = null;
+  room.history = [];
+  resetWerewolfRoom(room);
+
+  const cards = shuffle(werewolfCardList(setup.counts));
+  room.players.forEach((p, i) => {
+    p.wwStart = cards[i];
+    p.wwCard = cards[i];
+  });
+  room.wwCenterStart = cards.slice(room.players.length);
+  room.wwCenter = [...room.wwCenterStart];
+  room.wwRolesInGame = WEREWOLF_ROLE_ORDER.filter(r => setup.counts[r]).map(r => ({ role: r, count: setup.counts[r] }));
+  room.wwDiscussMinutes = setup.discussMinutes;
+  room.roundPhase = 'night';
+
+  // Information some roles get just by waking up
+  const startOf = (role) => room.players.filter(p => p.wwStart === role);
+  room.players.forEach(p => {
+    if (p.wwStart === 'werewolf') {
+      const others = startOf('werewolf').filter(o => o !== p).map(o => o.name);
+      p.wwNightInfo.push(others.length ? `另一隻狼人是：${others.join('、')}` : '你是唯一的狼人！可以偷看中間 1 張牌。');
+    } else if (p.wwStart === 'minion') {
+      const wolves = startOf('werewolf').map(o => o.name);
+      p.wwNightInfo.push(wolves.length ? `狼人是：${wolves.join('、')}` : '場上沒有玩家拿到狼人（都在中間）。');
+    } else if (p.wwStart === 'mason') {
+      const others = startOf('mason').filter(o => o !== p).map(o => o.name);
+      p.wwNightInfo.push(others.length ? `另一位守夜人是：${others.join('、')}` : '另一張守夜人在中間，你是唯一的守夜人。');
+    }
+  });
+
+  addLog(room, 'system', '🌙 天黑請閉眼……每個人在自己的手機上完成夜晚行動。');
+  broadcastRoomUpdate(room);
+}
+
+// Validate a night action for the player's starting role; returns an error string or null
+function werewolfNightError(room, p, action) {
+  const others = room.players.filter(o => o !== p);
+  const isOther = (id) => others.some(o => o.id === id);
+  const isCenter = (i) => Number.isInteger(i) && i >= 0 && i < WEREWOLF_CENTER;
+  const lone = room.players.filter(o => o.wwStart === 'werewolf').length === 1;
+  switch (p.wwStart) {
+    case 'werewolf':
+      if (lone && action.centerIndex !== undefined && !isCenter(action.centerIndex)) return '請選中間的牌。';
+      return null;
+    case 'seer':
+      if (action.skip) return null;
+      if (action.playerId !== undefined) return isOther(action.playerId) ? null : '請選一位其他玩家。';
+      if (Array.isArray(action.centerIndexes) && action.centerIndexes.length === 2
+        && action.centerIndexes.every(isCenter) && action.centerIndexes[0] !== action.centerIndexes[1]) return null;
+      return '請選一位玩家，或中間 2 張牌。';
+    case 'robber':
+      if (action.skip) return null;
+      return isOther(action.playerId) ? null : '請選一位其他玩家。';
+    case 'troublemaker':
+      if (action.skip) return null;
+      if (Array.isArray(action.playerIds) && action.playerIds.length === 2
+        && action.playerIds.every(isOther) && action.playerIds[0] !== action.playerIds[1]) return null;
+      return '請選兩位其他玩家。';
+    case 'drunk':
+      return isCenter(action.centerIndex) ? null : '請選中間的一張牌。';
+    default:
+      return null;
+  }
+}
+
+// Looks that happen before any card moves are answered right away
+function werewolfImmediateInfo(room, p, action) {
+  if (p.wwStart === 'werewolf' && action.centerIndex !== undefined) {
+    p.wwNightInfo.push(`你偷看了中間第 ${action.centerIndex + 1} 張：${wwRoleName(room.wwCenterStart[action.centerIndex])}`);
+  } else if (p.wwStart === 'seer' && action.playerId !== undefined) {
+    const t = wwPlayer(room, action.playerId);
+    p.wwNightInfo.push(`你看了 ${t.name} 的牌：${wwRoleName(t.wwStart)}`);
+  } else if (p.wwStart === 'seer' && action.centerIndexes) {
+    p.wwNightInfo.push(`你看了中間的牌：${action.centerIndexes.map(i => `第 ${i + 1} 張 ${wwRoleName(room.wwCenterStart[i])}`).join('、')}`);
+  } else if (p.wwStart === 'robber' && action.playerId !== undefined) {
+    const t = wwPlayer(room, action.playerId);
+    // Nothing moves before the robber, so the target still holds their starting card
+    p.wwNightInfo.push(`你搶了 ${t.name} 的牌，現在你是：${wwRoleName(t.wwStart)}`);
+  }
+}
+
+function maybeEndWerewolfNight(room) {
+  if (room.roundPhase !== 'night') return;
+  const waiting = room.players.filter(p => p.connected && !p.wwLeft && !p.wwNightDone);
+  if (waiting.length === 0) endWerewolfNight(room);
+}
+
+// Apply card moves in the official order, then dawn
+function endWerewolfNight(room) {
+  const log = room.wwNightLog;
+  const byStart = (role) => room.players.filter(p => p.wwStart === role);
+  const swap = (a, b) => { [a.wwCard, b.wwCard] = [b.wwCard, a.wwCard]; };
+
+  byStart('werewolf').forEach(p => {
+    if (p.wwNightAction && p.wwNightAction.centerIndex !== undefined) log.push(`🐺 ${p.name}（唯一的狼人）偷看了中間第 ${p.wwNightAction.centerIndex + 1} 張：${wwRoleName(room.wwCenterStart[p.wwNightAction.centerIndex])}`);
+  });
+  byStart('seer').forEach(p => {
+    const a = p.wwNightAction || {};
+    if (a.playerId) log.push(`🔮 預言家 ${p.name} 看了 ${wwPlayer(room, a.playerId).name} 的牌（${wwRoleName(wwPlayer(room, a.playerId).wwStart)}）`);
+    else if (a.centerIndexes) log.push(`🔮 預言家 ${p.name} 看了中間第 ${a.centerIndexes.map(i => i + 1).join('、')} 張`);
+  });
+  byStart('robber').forEach(p => {
+    const a = p.wwNightAction || {};
+    if (a.playerId) {
+      const t = wwPlayer(room, a.playerId);
+      swap(p, t);
+      log.push(`🦹 強盜 ${p.name} 搶了 ${t.name} 的牌，變成${wwRoleName(p.wwCard)}`);
+    }
+  });
+  byStart('troublemaker').forEach(p => {
+    const a = p.wwNightAction || {};
+    if (a.playerIds) {
+      const [x, y] = a.playerIds.map(id => wwPlayer(room, id));
+      swap(x, y);
+      log.push(`🃏 搗蛋鬼 ${p.name} 交換了 ${x.name} 和 ${y.name} 的牌`);
+    }
+  });
+  byStart('drunk').forEach(p => {
+    // A drunk who never acted (left / skipped by the host) still has to swap
+    const idx = p.wwNightAction && Number.isInteger(p.wwNightAction.centerIndex) ? p.wwNightAction.centerIndex : Math.floor(Math.random() * WEREWOLF_CENTER);
+    [p.wwCard, room.wwCenter[idx]] = [room.wwCenter[idx], p.wwCard];
+    log.push(`🍺 酒鬼 ${p.name} 拿自己的牌換了中間第 ${idx + 1} 張`);
+  });
+  byStart('insomniac').forEach(p => {
+    p.wwNightInfo.push(`天亮前你看了自己的牌：${wwRoleName(p.wwCard)}`);
+    log.push(`😴 失眠者 ${p.name} 醒來看到自己是${wwRoleName(p.wwCard)}`);
+  });
+
+  room.roundPhase = 'day';
+  room.wwDayEndsAt = Date.now() + room.wwDiscussMinutes * 60 * 1000;
+  clearTimeout(room.wwDayTimer);
+  room.wwDayTimer = setTimeout(() => {
+    if (rooms.get(room.roomCode) !== room || room.roundPhase !== 'day') return;
+    startWerewolfVoting(room);
+    broadcastRoomUpdate(room);
+  }, room.wwDiscussMinutes * 60 * 1000);
+  addLog(room, 'system', `☀️ 天亮了！討論 ${room.wwDiscussMinutes} 分鐘後投票。`);
+}
+
+function startWerewolfVoting(room) {
+  clearTimeout(room.wwDayTimer);
+  room.wwDayTimer = null;
+  room.roundPhase = 'voting';
+  room.wwVotes = [];
+  addLog(room, 'system', '🗳️ 投票時間！');
+}
+
+function maybeResolveWerewolfVotes(room) {
+  if (room.roundPhase !== 'voting') return;
+  const voters = room.players.filter(p => p.connected && !p.wwLeft);
+  if (voters.every(p => room.wwVotes.some(v => v.voter === p.id))) resolveWerewolfVotes(room);
+}
+
+function resolveWerewolfVotes(room) {
+  const counts = new Map();
+  room.wwVotes.forEach(v => counts.set(v.target, (counts.get(v.target) || 0) + 1));
+  const max = Math.max(0, ...counts.values());
+  // Nobody dies unless someone got at least 2 votes; ties all die
+  let dead = max >= 2 ? [...counts.entries()].filter(([, c]) => c === max).map(([id]) => id) : [];
+  const events = [];
+  if (!dead.length) events.push('沒有人得到 2 票以上，沒有人死亡。');
+  // A dying hunter takes the person they voted for along
+  dead.forEach(id => {
+    const p = wwPlayer(room, id);
+    if (p.wwCard === 'hunter') {
+      const shot = room.wwVotes.find(v => v.voter === id);
+      if (shot && !dead.includes(shot.target)) {
+        dead.push(shot.target);
+        events.push(`🏹 ${p.name} 是獵人，帶走了 ${wwPlayer(room, shot.target).name}！`);
+      }
+    }
+  });
+
+  const deadPlayers = dead.map(id => wwPlayer(room, id));
+  const isWolf = (p) => p.wwCard === 'werewolf';
+  const wolvesInPlay = room.players.filter(isWolf);
+  const wolfDied = deadPlayers.some(isWolf);
+  const tannerDied = deadPlayers.some(p => p.wwCard === 'tanner');
+  const winners = new Set();
+  if (tannerDied) winners.add('tanner');
+  if (wolvesInPlay.length) {
+    if (wolfDied) winners.add('village');
+    else if (!tannerDied) winners.add('werewolf');
+  } else {
+    // No werewolf among the players: the village wins if nobody dies;
+    // a minion wins if someone else dies
+    const minionDied = deadPlayers.some(p => p.wwCard === 'minion');
+    if (!deadPlayers.length) winners.add('village');
+    else if (room.players.some(p => p.wwCard === 'minion') && !minionDied && !tannerDied) winners.add('werewolf');
+  }
+
+  const teamOf = (p) => WEREWOLF_ROLES[p.wwCard].team;
+  room.wwResult = {
+    votes: room.wwVotes.map(v => ({ ...v })),
+    tally: [...counts.entries()].map(([id, count]) => ({ id, count })).sort((a, b) => b.count - a.count),
+    dead,
+    events,
+    winningTeams: [...winners],
+    winnerIds: room.players.filter(p => winners.has(teamOf(p))).map(p => p.id)
+  };
+  room.roundPhase = 'game_over';
+  room.gameEnded = true;
+  const teamNames = { village: '好人陣營', werewolf: '狼人陣營', tanner: '皮匠' };
+  addLog(room, 'system', winners.size ? `🏁 ${[...winners].map(t => teamNames[t]).join('、')}獲勝！` : '🏁 這局沒有任何陣營獲勝。');
+}
+
+function getWerewolfRoomState(room, socketId) {
+  const me = wwPlayer(room, socketId);
+  const reveal = room.gameEnded;
+  const setup = getWerewolfSetup(room);
+  const votes = room.wwVotes || [];
+  const players = room.players.map(p => ({
+    id: p.id,
+    name: p.name,
+    host: p.host,
+    connected: p.connected,
+    isBot: false,
+    left: !!p.wwLeft,
+    nightDone: !!p.wwNightDone,
+    startRole: reveal ? p.wwStart : null,
+    finalRole: reveal ? p.wwCard : null
+  }));
+  const myVote = votes.find(v => v.voter === socketId);
+  return {
+    roomCode: room.roomCode,
+    gameType: room.gameType,
+    gameStarted: room.gameStarted,
+    gameEnded: room.gameEnded,
+    roundPhase: room.roundPhase,
+    setup: { ...setup, error: werewolfSetupError(setup), defaultCounts: defaultWerewolfCounts(setup.total) },
+    roleInfo: WEREWOLF_ROLES,
+    roleOrder: WEREWOLF_ROLE_ORDER,
+    rolesInGame: room.gameStarted ? (room.wwRolesInGame || []) : [],
+    dayEndsAt: room.wwDayEndsAt || null,
+    serverNow: Date.now(),
+    votedIds: votes.map(v => v.voter),
+    myVote: myVote ? myVote.target : null,
+    my: me ? {
+      startRole: me.wwStart,
+      nightDone: !!me.wwNightDone,
+      nightInfo: me.wwNightInfo || [],
+      loneWolf: me.wwStart === 'werewolf' && room.players.filter(o => o.wwStart === 'werewolf').length === 1
+    } : null,
+    center: reveal ? { start: room.wwCenterStart, final: room.wwCenter } : null,
+    nightLog: reveal ? room.wwNightLog : [],
+    result: room.wwResult || null,
+    players,
+    history: room.history,
+    me: players.find(p => p.id === socketId) || null
+  };
+}
+
+function handleWerewolfDeparture(room, player) {
+  if (room.gameEnded || player.wwLeft) return;
+  player.wwLeft = true;
+  if (room.roundPhase === 'night') maybeEndWerewolfNight(room);
+  else if (room.roundPhase === 'voting') maybeResolveWerewolfVotes(room);
+}
+
+function getWerewolfContext(socket, phase) {
+  const room = getRoomBySocket(socket);
+  if (!room || room.gameType !== 'werewolf' || !room.gameStarted || room.gameEnded) return null;
+  if (phase && room.roundPhase !== phase) return null;
+  const player = wwPlayer(room, socket.id);
+  if (!player || player.wwLeft) return null;
+  return { room, player };
+}
+
+io.on('connection', (socket) => {
+  // Event: Host changes the role counts / discussion time
+  socket.on('werewolf_settings', ({ counts, discussMinutes } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'werewolf' || room.gameStarted) return;
+    const player = wwPlayer(room, socket.id);
+    if (!player || !player.host) return;
+    if (!room.wwSettings) room.wwSettings = { counts: null, discussMinutes: 5 };
+    if (counts === null) room.wwSettings.counts = null; // back to the recommended set
+    else if (counts && typeof counts === 'object') {
+      const clean = {};
+      WEREWOLF_ROLE_ORDER.forEach(r => {
+        const n = Number(counts[r]) || 0;
+        clean[r] = Math.max(0, Math.min(WEREWOLF_ROLES[r].max, Math.floor(n)));
+      });
+      room.wwSettings.counts = clean;
+    }
+    if (Number.isInteger(discussMinutes)) room.wwSettings.discussMinutes = Math.max(1, Math.min(15, discussMinutes));
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Submit your night action (everyone submits, even roles without one)
+  socket.on('werewolf_night', (action = {}) => {
+    const ctx = getWerewolfContext(socket, 'night');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (player.wwNightDone) return;
+    const error = werewolfNightError(room, player, action);
+    if (error) {
+      socket.emit('errorMsg', error);
+      return;
+    }
+    player.wwNightAction = action;
+    player.wwNightDone = true;
+    werewolfImmediateInfo(room, player, action);
+    maybeEndWerewolfNight(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host ends the night for players who are away
+  socket.on('werewolf_forceDawn', () => {
+    const ctx = getWerewolfContext(socket, 'night');
+    if (!ctx || !ctx.player.host) return;
+    endWerewolfNight(ctx.room);
+    broadcastRoomUpdate(ctx.room);
+  });
+
+  // Event: Host cuts the discussion short and opens the vote
+  socket.on('werewolf_startVoting', () => {
+    const ctx = getWerewolfContext(socket, 'day');
+    if (!ctx || !ctx.player.host) return;
+    startWerewolfVoting(ctx.room);
+    broadcastRoomUpdate(ctx.room);
+  });
+
+  // Event: Vote for someone (can be changed until everyone has voted)
+  socket.on('werewolf_vote', ({ targetId } = {}) => {
+    const ctx = getWerewolfContext(socket, 'voting');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    const target = wwPlayer(room, targetId);
+    if (!target || target.id === player.id) return;
+    room.wwVotes = room.wwVotes.filter(v => v.voter !== player.id);
+    room.wwVotes.push({ voter: player.id, target: target.id });
+    maybeResolveWerewolfVotes(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host closes the vote early
+  socket.on('werewolf_forceTally', () => {
+    const ctx = getWerewolfContext(socket, 'voting');
+    if (!ctx || !ctx.player.host) return;
+    resolveWerewolfVotes(ctx.room);
+    broadcastRoomUpdate(ctx.room);
   });
 });
 

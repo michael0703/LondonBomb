@@ -904,12 +904,9 @@ function renderGameBoard(state, me) {
             displays.finalRolesList.appendChild(row);
         });
 
-        if (isHost) {
-            buttons.restart.style.display = 'block';
-            buttons.restart.querySelector('span').textContent = '再玩一局';
-        } else {
-            buttons.restart.style.display = 'none';
-        }
+        // Anyone can bring the table back to the lobby for another game
+        buttons.restart.style.display = 'block';
+        buttons.restart.querySelector('span').textContent = '🔁 再玩一局（回大廳）';
     } else {
         displays.gameOverModal.classList.remove('active');
         displays.gameOverModal.classList.remove('minimized');

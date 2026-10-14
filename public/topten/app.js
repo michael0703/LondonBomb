@@ -585,8 +585,7 @@ function renderGameBoard(state, me) {
     // ----------------------------------------------------
     if (state.roundPhase === 'game_over' || state.gameEnded) {
         displays.gameOverSubtitle.textContent = `🎉 恭喜完成了全部 5 個回合的默契考驗！`;
-        displays.gameOverModal.querySelector('.modal-title').textContent = '🏆 順利通關 🏆';
-        displays.gameOverModal.querySelector('.modal-title').className = 'logo-text text-gold';
+        document.getElementById('game-over-title').textContent = '🏆 順利通關 🏆';
         
         displays.finalScoresList.innerHTML = '';
         state.players.forEach(p => {
@@ -709,6 +708,11 @@ function initSocketAndEvents() {
         AudioSynth.playTick();
         BoardgameSession.exitToPortal();
     });
+
+    document.getElementById('btn-restart').addEventListener('click', () => {
+        AudioSynth.playTick();
+        socket.emit('restartGame');
+    });
 }
 
 // SOCKET MESSAGE HANDLERS
@@ -716,6 +720,7 @@ socket.on('roomUpdate', (state) => {
     isSubmittingAnswer = false;
     
     if (!state.gameStarted) {
+        displays.gameOverModal.classList.remove('active');
         switchView('waiting');
         renderWaitingRoom(state);
     } else {

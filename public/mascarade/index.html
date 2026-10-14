@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>化裝舞會 | 桌遊入口</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- NICKNAME & LOBBY LOGIN VIEW -->
+        <div id="login-view" class="view-panel active">
+            <div class="steampunk-border"></div>
+
+            <h1 class="logo-text">🎭 化裝舞會 🎭</h1>
+            <p class="logo-subtext">面具底下的你，真的是你以為的那個人嗎？</p>
+
+            <div class="input-group">
+                <label for="input-nickname">輸入你的暱稱</label>
+                <input type="text" id="input-nickname" placeholder="例如：福爾摩斯..." maxlength="10">
+            </div>
+
+            <div class="input-group">
+                <label for="input-room-code">房號 (加入已有房間)</label>
+                <input type="text" id="input-room-code" placeholder="例如：ABCD..." maxlength="4" style="text-transform: uppercase;">
+            </div>
+
+            <div class="button-row">
+                <button id="btn-create-room" class="btn btn-gold">
+                    <span>創建新房間</span>
+                </button>
+                <button id="btn-join-room" class="btn btn-brass">
+                    <span>加入已有房間</span>
+                </button>
+            </div>
+
+            <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="margin: 15px auto 0; width: 100%; max-width: 320px;">
+                <span>⬅️ 返回桌遊入口</span>
+            </button>
+        </div>
+
+        <!-- WAITING LOBBY VIEW -->
+        <div id="waiting-view" class="view-panel">
+            <div class="steampunk-border"></div>
+            <div class="lobby-header">
+                <div class="room-indicator">
+                    <span class="label">當前房號</span>
+                    <span id="display-room-code" class="value">----</span>
+                </div>
+                <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">
+                    <span>🚪 離開大廳</span>
+                </button>
+            </div>
+
+            <h2 class="lobby-title">🎭 舞會大廳 🎭</h2>
+
+            <div class="lobby-columns">
+                <div class="lobby-section players-section">
+                    <h3>👥 在線玩家 (<span id="player-count">0</span>/13)</h3>
+                    <ul id="lobby-players-list"></ul>
+                </div>
+
+                <div class="lobby-section rules-section">
+                    <h3>⚙️ 角色設定</h3>
+                    <div class="ms-settings">
+                        <div id="role-checklist" class="role-checklist"></div>
+                        <p id="role-count-note" class="setting-note"></p>
+                        <button id="btn-reset-roles" class="btn btn-brass btn-small"><span>↩️ 恢復建議組合</span></button>
+                        <label class="keep-log-row">
+                            <input type="checkbox" id="toggle-keep-log">
+                            <span>📜 保留亮牌紀錄（不勾＝跟實體版一樣靠記憶）</span>
+                        </label>
+                    </div>
+
+                    <h3>📋 遊戲規則</h3>
+                    <ul>
+                        <li>每人一張<strong>角色牌</strong>和 6 枚金幣。開局先讓大家看一眼所有人的角色，然後全部蓋起來。</li>
+                        <li>輪到你時三選一：<strong>交換</strong>（拿自己和另一張牌，暗中決定換或假裝換）、<strong>偷看自己的牌</strong>、或<strong>宣告角色</strong>。</li>
+                        <li>宣告後其他人可以當面喊「我才是！」並在手機上按下。沒人質疑就直接發動能力（說謊也行）；有人質疑就全部<strong>亮牌</strong>，真的是那個角色的人發動能力，說謊的人各付 1 金幣到<strong>法院</strong>。</li>
+                        <li>前 4 回合只能交換。偷看的牌只會顯示 5 秒，要自己記住！</li>
+                        <li><strong>先達到 13 枚金幣的人獲勝</strong>；有人金幣歸零時，最有錢的人獲勝。</li>
+                    </ul>
+                    <div class="host-controls">
+                        <p id="lobby-status-msg" class="status-msg">等待其他玩家加入...</p>
+                        <button id="btn-start-game" class="btn btn-gold btn-large disabled" disabled>
+                            <span>開始遊戲</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GAME PLAY VIEW -->
+        <div id="game-view" class="view-panel">
+            <div id="my-card" class="my-card">
+                <span class="my-card-label">你的牌</span>
+                <strong id="my-card-value" class="my-card-value">🎭 蓋著</strong>
+                <span id="my-card-timer" class="my-card-label"></span>
+            </div>
+
+            <div class="game-dashboard">
+                <div class="dash-item">
+                    <div class="dash-label">我的金幣</div>
+                    <div id="display-my-coins" class="dash-value">6</div>
+                </div>
+                <div class="dash-item active-player-dash">
+                    <div class="dash-label">法院</div>
+                    <div id="display-court" class="dash-value">0</div>
+                </div>
+                <div class="dash-item">
+                    <div class="dash-label">回合</div>
+                    <div id="display-turn" class="dash-value">1</div>
+                </div>
+                <div class="dash-item exit-dash">
+                    <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="padding: 6px 12px; font-size: 0.8rem; height: 42px; width: 100px;">
+                        <span>🚪 離開</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="ticker-banner">
+                <span id="ticker-text">遊戲準備中...</span>
+            </div>
+
+            <div class="bottom-controls">
+                <div id="control-panel" class="ms-panel"></div>
+            </div>
+
+            <div class="uc-section">
+                <h3>👥 座位（順時針）</h3>
+                <ul id="players-list" class="ms-players"></ul>
+                <div id="center-cards" class="center-cards"></div>
+            </div>
+
+            <div id="reveal-log-section" class="uc-section">
+                <h3>📜 亮牌紀錄</h3>
+                <ul id="reveal-log" class="reveal-log"></ul>
+            </div>
+
+            <details class="uc-section role-reference">
+                <summary>📖 這局的角色能力</summary>
+                <ul id="role-reference-list"></ul>
+            </details>
+        </div>
+    </div>
+
+    <!-- GAME OVER MODAL -->
+    <div id="game-over-modal" class="modal-overlay">
+        <div class="steampunk-modal">
+            <div class="modal-gears">🎭🏆🎭</div>
+            <h1 id="winner-title" class="logo-text">遊戲結束</h1>
+            <p class="modal-desc">大家面具底下的真面目：</p>
+            <ul id="final-list" class="scores-list"></ul>
+            <div class="modal-actions">
+                <button id="btn-restart" class="btn btn-gold" style="display: none;">
+                    <span>🔁 再玩一局（回大廳）</span>
+                </button>
+                <button id="btn-exit-lobby" class="btn btn-brass">
+                    <span>回到桌遊入口</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="error-toast" class="error-toast">錯誤提示資訊</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/shared/session.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

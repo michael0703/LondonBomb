@@ -69,9 +69,11 @@
                         <li>每個人從題庫抽一位<strong>名人</strong>：你看得到別人的名人，<strong>看不到自己的</strong>。</li>
                         <li>輪到你時，一直向大家<strong>發問</strong>（例如「我是亞洲人嗎？」「我演過電影嗎？」），直到猜中或放棄才換下一位。</li>
                         <li>其他人用「是／不是／不確定」回答，可以打字補充，<strong>不可以說謊</strong>！</li>
-                        <li>隨時可以<strong>猜答案</strong>，由其他人判定對錯。猜測不算題數，但累計猜測次數最多只能是<strong>已問題數＋1</strong>。</li>
+                        <li>隨時可以<strong>猜答案</strong>，由其他人判定對錯（需要 2 人判定一致才算數，只有 1 位判定者時例外）。猜測不算題數，但累計猜測次數最多只能是<strong>已問題數＋1</strong>。</li>
                         <li>最後比較題數，<strong>用最少問題猜中</strong>的人獲勝；放棄的人排在最後。</li>
                         <li>大家都不認識某位名人時，房主可以幫他<strong>換牌</strong>（題數重新計算）。</li>
+                        <li>想讓發問的人猜別的名人？其他人可以<strong>自創題目</strong>：除了發問者和出題者以外，同意比不同意多就換成新題目（題數重新計算），發問者看不到題目。</li>
+                        <li>有人想先暫停，房主可以<strong>跳過</strong>他：已問的題數保留，排到最後再繼續。</li>
                     </ul>
                     <div class="host-controls">
                         <p id="lobby-status-msg" class="status-msg">等待其他玩家加入...</p>
@@ -175,10 +177,25 @@
                         <button id="btn-judge-correct" class="btn btn-answer answer-yes"><span>✅ 猜對了</span></button>
                         <button id="btn-judge-wrong" class="btn btn-answer answer-no"><span>❌ 猜錯了</span></button>
                     </div>
+                    <div id="judge-progress" class="control-hint"></div>
                 </div>
 
                 <div id="panel-spectating" class="control-sub-panel">
                     <div class="control-hint">等待中...</div>
+                </div>
+
+                <!-- Custom celebrity proposal for the current asker -->
+                <div id="proposal-box" class="proposal-box">
+                    <div id="proposal-text" class="control-hint"></div>
+                    <div id="proposal-vote-row" class="quick-answer-row">
+                        <button id="btn-proposal-yes" class="btn btn-answer answer-yes"><span>👍 同意</span></button>
+                        <button id="btn-proposal-no" class="btn btn-answer answer-no"><span>👎 不同意</span></button>
+                    </div>
+                    <div id="proposal-form" class="answering-form">
+                        <input type="text" id="input-custom-celebrity" placeholder="想讓他猜誰？輸入名人" maxlength="30">
+                        <button id="btn-send-proposal" class="btn btn-gold"><span>送出提議</span></button>
+                    </div>
+                    <button id="btn-open-proposal" class="btn btn-brass btn-small"><span>✏️ 幫他自創題目</span></button>
                 </div>
             </div>
         </div>
@@ -193,7 +210,7 @@
             <ul id="final-scores-list" class="scores-list"></ul>
             <div class="modal-actions">
                 <button id="btn-restart" class="btn btn-gold" style="display: none;">
-                    <span>再玩一局</span>
+                    <span>🔁 再玩一局（回大廳）</span>
                 </button>
                 <button id="btn-exit-lobby" class="btn btn-brass">
                     <span>回到桌遊入口</span>
