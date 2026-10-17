@@ -88,14 +88,9 @@
                         </div>
                     </div>
 
-                    <h3>📋 遊戲規則</h3>
-                    <ul>
-                        <li>身分牌＝人數＋3，每人一張，<strong>3 張蓋在中間</strong>。</li>
-                        <li><strong>夜晚</strong>：每個人同時在手機上完成自己的夜晚行動（沒有能力的人也要按確認，別人看不出你是誰）。有些角色會偷看或<strong>交換別人的牌</strong>，所以你最後的身分可能已經變了！</li>
-                        <li><strong>白天</strong>：大家當面討論，可以說謊。時間到（或房主提早）就<strong>同時投票</strong>。</li>
-                        <li>最高票的人死亡（平票全死；沒有人得到 2 票以上就沒人死）。死掉的獵人會帶走他投的人。</li>
-                        <li>依<strong>最後</strong>的牌判斷陣營：死者中有狼人 ➔ 好人贏；沒有狼人死 ➔ 狼人贏；皮匠被票死 ➔ 皮匠贏（狼人就不算贏）。</li>
-                    </ul>
+                    <button class="btn btn-brass btn-help" type="button" data-open-help>
+                        <span>📖 遊戲說明（規則・夜晚順序）</span>
+                    </button>
                     <div class="host-controls">
                         <p id="lobby-status-msg" class="status-msg">等待其他玩家加入...</p>
                         <button id="btn-start-game" class="btn btn-gold btn-large disabled" disabled>
@@ -150,6 +145,9 @@
             <div class="uc-section">
                 <h3>🃏 這局有的身分（共 <span id="roles-total">0</span> 張，3 張在中間）</h3>
                 <div id="roles-in-game" class="role-strip"></div>
+                <button class="btn btn-brass btn-help" type="button" data-open-help>
+                    <span>📖 遊戲說明（規則・夜晚順序）</span>
+                </button>
             </div>
         </div>
     </div>
@@ -159,6 +157,7 @@
         <div class="steampunk-modal ww-modal">
             <div class="modal-gears">🐺🌅🐺</div>
             <h1 id="winner-title" class="logo-text">遊戲結束</h1>
+            <div id="winner-names" class="winner-names"></div>
             <ul id="result-events" class="effect-list"></ul>
             <ul id="final-list" class="scores-list"></ul>
             <p id="center-reveal" class="modal-desc"></p>
@@ -173,6 +172,95 @@
                 <button id="btn-exit-lobby" class="btn btn-brass">
                     <span>回到桌遊入口</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HELP MODAL: rules and night order, opened from the lobby or in game -->
+    <div id="help-modal" class="modal-overlay">
+        <div class="steampunk-modal ww-modal help-modal">
+            <h2 class="help-title">📖 遊戲說明</h2>
+
+            <p class="help-note">點標題展開或收合。</p>
+
+            <details class="help-section" open>
+                <summary>📋 遊戲流程</summary>
+                <ul class="help-list">
+                    <li>身分牌＝人數＋3，每人一張，<strong>3 張蓋在中間</strong>。</li>
+                    <li><strong>夜晚</strong>：每個人同時在手機上完成自己的夜晚行動（沒有能力的人也要按確認，別人看不出你是誰）。有些角色會偷看或<strong>交換別人的牌</strong>，所以你最後的身分可能已經變了！</li>
+                    <li><strong>白天</strong>：大家當面討論，可以說謊、可以假裝別的身分。時間到（或房主提早）就<strong>同時投票</strong>。</li>
+                    <li><strong>投票</strong>：每人投一位其他玩家。最高票的人死亡；平票的話一起死；<strong>沒有人拿到 2 票以上就沒有人死</strong>。</li>
+                    <li><strong>獵人</strong>被票死時，會帶走他投的那個人。</li>
+                </ul>
+            </details>
+
+            <details class="help-section">
+                <summary>🔄 換牌與陣營：看「最後」的牌</summary>
+                <ul class="help-list">
+                    <li>結算時<strong>只看你最後手上的牌</strong>，一開始拿到什麼不算數。</li>
+                    <li>一開始是好人、半夜被換成狼人牌 ➔ 你就是<strong>狼人陣營</strong>，你被票死等於狼人死、好人贏。</li>
+                    <li>一開始是狼人、被換走了 ➔ 你變成好人（或你換到的身分），要幫好人找狼。</li>
+                    <li>大部分人不知道自己有沒有被換，只有<strong>強盜</strong>（換完會看）和<strong>失眠者</strong>（天亮前看）知道自己最後是什麼。</li>
+                    <li>遊戲結束畫面會顯示每個人「一開始 ➔ 最後」的身分。</li>
+                </ul>
+            </details>
+
+            <details class="help-section">
+                <summary>🏆 勝負判定</summary>
+                <table class="help-table">
+                    <thead><tr><th>死亡情況（看最後的牌）</th><th>誰贏</th></tr></thead>
+                    <tbody>
+                        <tr><td>死者中有<strong>任何一隻</strong>狼人</td><td>好人（皮匠也死的話，皮匠也贏）</td></tr>
+                        <tr><td>有人死，但沒有狼人、也沒有皮匠</td><td>狼人陣營（狼人＋爪牙）</td></tr>
+                        <tr><td>皮匠死，沒有狼人死</td><td>只有皮匠</td></tr>
+                        <tr><td>沒有人死（場上有狼人）</td><td>狼人陣營</td></tr>
+                    </tbody>
+                </table>
+                <ul class="help-list">
+                    <li>只要死<strong>一隻</strong>狼人，整個狼人陣營都輸（另一隻狼人和爪牙也一樣）。</li>
+                    <li>爪牙被票死但狼人都沒死 ➔ 狼人陣營照樣贏。</li>
+                    <li>獵人帶走的人也算死亡。</li>
+                </ul>
+            </details>
+
+            <details class="help-section">
+                <summary>🫥 場上沒有狼人？</summary>
+                <ul class="help-list">
+                    <li>狼人牌可能<strong>全部在中間</strong>，這時沒有任何玩家是狼人（人越少越容易發生，例如 3 人局約 20%）。</li>
+                    <li>這時<strong>沒有人死 ➔ 好人贏</strong>；有人被票死 ➔ 好人輸。</li>
+                    <li>場上有爪牙、爪牙沒死、但有別人死 ➔ 爪牙（狼人陣營）贏。皮匠被票死 ➔ 皮匠贏。</li>
+                    <li>覺得沒有狼人時，大家可以<strong>把票分散</strong>，讓沒有人拿到 2 票。</li>
+                </ul>
+            </details>
+
+            <details class="help-section">
+                <summary>🌙 夜晚結算順序</summary>
+                <p class="help-note">大家同時在手機上操作，不用輪流；全部按完後，系統照下面的順序結算，結果和實體版輪流叫醒一樣。</p>
+                <ol class="help-order">
+                    <li><strong>🐺 狼人</strong>：互相確認；只有一隻狼的話，偷看中間 1 張</li>
+                    <li><strong>😈 爪牙</strong>：看誰是狼人</li>
+                    <li><strong>👷 守夜人</strong>：互相確認</li>
+                    <li><strong>🔮 預言家</strong>：偷看 1 位玩家，或中間 2 張</li>
+                    <li><strong>🦹 強盜</strong>：和 1 位玩家換牌，並看自己換到什麼</li>
+                    <li><strong>🃏 搗蛋鬼</strong>：交換另外兩位玩家的牌</li>
+                    <li><strong>🍺 酒鬼</strong>：自己的牌和中間 1 張交換（不能看）</li>
+                    <li><strong>😴 失眠者</strong>：天亮前看自己最後的牌</li>
+                </ol>
+                <p class="help-note">🏹 獵人、🪡 皮匠、🙂 村民晚上沒有行動。</p>
+            </details>
+
+            <details class="help-section">
+                <summary>💡 推理小提醒</summary>
+                <ul class="help-list">
+                    <li>狼人、預言家看到的是<strong>換牌前</strong>的牌，被看的人之後可能被換走。</li>
+                    <li>強盜換到的身分，可能又被後面的搗蛋鬼換掉。</li>
+                    <li>失眠者最後才看，看到的就是自己<strong>真正的最終身分</strong>。</li>
+                    <li>強盜搶到狼人 ➔ 強盜變成狼人，被搶的那個人變成強盜（好人）。</li>
+                </ul>
+            </details>
+
+            <div class="modal-actions">
+                <button id="btn-close-help" class="btn btn-gold" type="button"><span>知道了</span></button>
             </div>
         </div>
     </div>

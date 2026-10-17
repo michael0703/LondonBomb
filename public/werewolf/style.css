@@ -1360,6 +1360,30 @@ body {
 
 .recommended-list li.current { border-color: var(--color-gold); background: #fff6e3; font-weight: 700; }
 
+.btn-help { width: 100%; margin: 4px 0 15px; }
+.uc-section .btn-help { margin: 6px 0 0; }
+
+.help-modal { text-align: left; }
+.help-title { text-align: center; color: var(--color-copper); margin-bottom: 10px; }
+.help-section {
+    border: 2px solid var(--color-iron);
+    border-radius: 10px;
+    background: var(--color-wood);
+    padding: 8px 12px;
+    margin-top: 8px;
+}
+
+.help-section[open] { background: #ffffff; border-color: var(--color-gold); }
+.help-section summary { cursor: pointer; font-weight: 700; color: var(--color-copper); }
+.help-section[open] summary { margin-bottom: 8px; }
+
+.help-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-bottom: 8px; }
+.help-table th, .help-table td { border: 1px solid var(--color-iron); padding: 5px 7px; text-align: left; vertical-align: top; }
+.help-table th { background: var(--color-wood); }
+.help-list, .help-order { padding-left: 1.4em; display: flex; flex-direction: column; gap: 5px; font-size: 0.86rem; line-height: 1.5; }
+.help-note { font-size: 0.8rem; color: var(--color-text-muted); margin: 4px 0; }
+.help-modal .modal-actions { margin-top: 18px; }
+
 .my-card-desc { font-size: 0.8rem; opacity: 0.9; text-align: center; line-height: 1.4; }
 
 .role-stepper-row {
@@ -1404,6 +1428,11 @@ body {
 }
 
 .ww-modal .effect-list { margin-bottom: 10px; }
+
+.winner-names { width: 100%; display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; text-align: left; }
+.winner-line { border-radius: 8px; padding: 8px 12px; font-size: 0.9rem; line-height: 1.5; }
+.winner-line.win { background: var(--color-gold-glow); border: 2px solid var(--color-gold); font-weight: 800; }
+.winner-line.lose { background: var(--color-wood); color: var(--color-text-muted); }
 
 .night-log-details {
     width: 100%;

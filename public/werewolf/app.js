@@ -369,6 +369,15 @@ function renderGameOver(state) {
         ? `🏆 ${r.winningTeams.map(t => TEAM_NAMES[t]).join('、')}獲勝！`
         : '😶 沒有陣營獲勝';
 
+    // Spell out who won and who lost, with the role each ended with
+    const names = $('winner-names');
+    names.innerHTML = '';
+    const describe = (p) => `${p.name}（${roleLabel(state, p.finalRole)}）`;
+    const winners = state.players.filter(p => r.winnerIds.includes(p.id));
+    const losers = state.players.filter(p => !r.winnerIds.includes(p.id));
+    names.appendChild(el('div', 'winner-line win', `🏆 贏家：${winners.length ? winners.map(describe).join('、') : '沒有人'}`));
+    if (losers.length) names.appendChild(el('div', 'winner-line lose', `💀 輸家：${losers.map(describe).join('、')}`));
+
     const events = $('result-events');
     events.innerHTML = '';
     const deadNames = r.dead.map(id => nameOf(state, id));
@@ -464,6 +473,15 @@ function initEvents() {
     $('btn-time-plus').addEventListener('click', () => {
         AudioSynth.playTick();
         socket.emit('werewolf_settings', { discussMinutes: latestState.setup.discussMinutes + 1 });
+    });
+
+    document.querySelectorAll('[data-open-help]').forEach(btn => btn.addEventListener('click', () => {
+        AudioSynth.playTick();
+        $('help-modal').classList.add('active');
+    }));
+    $('btn-close-help').addEventListener('click', () => $('help-modal').classList.remove('active'));
+    $('help-modal').addEventListener('click', (e) => {
+        if (e.target === $('help-modal')) $('help-modal').classList.remove('active');
     });
 
     $('btn-start-game').addEventListener('click', () => {
