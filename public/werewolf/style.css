@@ -1275,11 +1275,92 @@ body {
 
 
 /* ================= WEREWOLF-SPECIFIC LAYOUT ================= */
-.role-steppers {
+.ww-roles-section { margin-bottom: 25px; gap: 6px; }
+
+.ww-roles-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid rgba(195, 154, 117, 0.15);
+    margin-bottom: 4px;
+}
+
+.ww-roles-head h3 { border-bottom: none; margin-bottom: 0; }
+
+/* Role cards side by side in one row; swipe sideways when they don't fit */
+.role-strip {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 4px 2px 10px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+}
+
+.role-tile {
+    flex: 0 0 160px;
+    scroll-snap-align: start;
     display: flex;
     flex-direction: column;
     gap: 6px;
+    background: var(--color-wood);
+    border: 2px solid var(--color-iron);
+    border-radius: 10px;
+    padding: 8px 10px;
+    opacity: 0.6;
 }
+
+.role-tile.on { opacity: 1; border-color: var(--color-gold); background: #fff6e3; }
+.role-tile.team-werewolf.on { border-color: var(--color-bad-red); background: #fdeeea; }
+.role-tile.team-tanner.on { border-color: #8a7bb0; background: #f2effa; }
+
+.role-tile-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.95rem;
+}
+
+.role-tile-icon { font-size: 1.3rem; }
+
+.role-tile-team {
+    margin-left: auto;
+    font-size: 0.68rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.role-tile-desc {
+    flex: 1;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--color-text-light);
+}
+
+.role-tile .stepper { justify-content: center; font-weight: 800; }
+
+.recommended-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.8rem;
+    margin-bottom: 15px;
+}
+
+.recommended-list li {
+    display: grid;
+    grid-template-columns: 3em 1fr;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 2px solid transparent;
+}
+
+.recommended-list li.current { border-color: var(--color-gold); background: #fff6e3; font-weight: 700; }
+
+.my-card-desc { font-size: 0.8rem; opacity: 0.9; text-align: center; line-height: 1.4; }
 
 .role-stepper-row {
     display: flex;

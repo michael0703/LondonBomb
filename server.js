@@ -3983,6 +3983,12 @@ function defaultWerewolfCounts(playerCount) {
   return c;
 }
 
+// Recommended set for every supported player count, shown in the lobby
+const WEREWOLF_RECOMMENDED = [];
+for (let n = WEREWOLF_MIN_PLAYERS; n <= WEREWOLF_MAX_PLAYERS; n++) {
+  WEREWOLF_RECOMMENDED.push({ players: n, counts: defaultWerewolfCounts(n) });
+}
+
 function werewolfCardList(counts) {
   return WEREWOLF_ROLE_ORDER.flatMap(r => Array(counts[r] || 0).fill(r));
 }
@@ -4269,6 +4275,7 @@ function getWerewolfRoomState(room, socketId) {
     gameEnded: room.gameEnded,
     roundPhase: room.roundPhase,
     setup: { ...setup, error: werewolfSetupError(setup), defaultCounts: defaultWerewolfCounts(setup.total) },
+    recommended: WEREWOLF_RECOMMENDED,
     roleInfo: WEREWOLF_ROLES,
     roleOrder: WEREWOLF_ROLE_ORDER,
     rolesInGame: room.gameStarted ? (room.wwRolesInGame || []) : [],

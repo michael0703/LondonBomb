@@ -92,6 +92,22 @@ function nameOf(state, id) {
     return p ? p.name : '?';
 }
 
+const TEAM_TAGS = { village: '好人', werewolf: '狼人陣營', tanner: '獨立' };
+
+// One role card: icon, name, team, ability text, plus an optional footer (count / stepper)
+function roleTile(state, role, count, footer) {
+    const info = state.roleInfo[role];
+    const tile = el('div', `role-tile team-${info.team}` + (count ? ' on' : ''));
+    const head = el('div', 'role-tile-head');
+    head.appendChild(el('span', 'role-tile-icon', info.icon));
+    head.appendChild(el('strong', null, info.name));
+    head.appendChild(el('span', 'role-tile-team', TEAM_TAGS[info.team] || ''));
+    tile.appendChild(head);
+    tile.appendChild(el('p', 'role-tile-desc', info.desc));
+    if (footer) tile.appendChild(footer);
+    return tile;
+}
+
 function rerender() {
     if (latestState && latestState.gameStarted) renderGameBoard(latestState);
 }
@@ -130,29 +146,35 @@ function renderWaitingRoom(state) {
         list.appendChild(li);
     });
 
-    // Role counts (host adjusts with steppers)
+    // Role cards in one row: ability text for everyone, count steppers for the host
     const setup = state.setup;
     const box = $('role-steppers');
     box.innerHTML = '';
     state.roleOrder.forEach(role => {
-        const info = state.roleInfo[role];
         const count = setup.counts[role] || 0;
-        const row = el('div', 'role-stepper-row' + (count ? ' on' : ''));
-        const label = el('span', null, `${info.icon} ${info.name}`);
-        label.title = info.desc;
-        row.appendChild(label);
         const stepper = el('div', 'stepper');
         const change = (delta) => {
             const counts = { ...setup.counts, [role]: count + delta };
             socket.emit('werewolf_settings', { counts });
         };
         if (isHost) stepper.appendChild(button('－', 'btn-brass btn-small', () => change(-1)));
-        stepper.appendChild(el('strong', null, String(count)));
+        stepper.appendChild(el('strong', null, `×${count}`));
         if (isHost) stepper.appendChild(button('＋', 'btn-brass btn-small', () => change(1)));
-        row.appendChild(stepper);
-        box.appendChild(row);
+        box.appendChild(roleTile(state, role, count, stepper));
     });
-    $('role-count-note').textContent = `身分牌 ${setup.cardCount} 張／需要 ${setup.cardsNeeded} 張（人數＋3）｜${setup.auto ? '目前是建議組合' : '房主自訂'}`;
+    $('role-count-note').textContent = `身分牌 ${setup.cardCount} 張／需要 ${setup.cardsNeeded} 張（人數＋3）｜${setup.auto ? '目前是建議組合' : '房主自訂'}${isHost ? '｜用 ＋／－ 調整張數' : ''}`;
+
+    // Recommended set for each player count, current count highlighted
+    const rec = $('recommended-list');
+    rec.innerHTML = '';
+    (state.recommended || []).forEach(({ players, counts }) => {
+        const li = el('li', players === setup.total ? 'current' : '');
+        li.appendChild(el('strong', null, `${players} 人`));
+        const roles = state.roleOrder.filter(r => counts[r])
+            .map(r => `${state.roleInfo[r].icon}${state.roleInfo[r].name}${counts[r] > 1 ? `×${counts[r]}` : ''}`);
+        li.appendChild(el('span', null, roles.join('、')));
+        rec.appendChild(li);
+    });
     $('btn-reset-roles').style.display = isHost && !setup.auto ? 'inline-block' : 'none';
     $('setting-minutes').textContent = setup.discussMinutes;
     $('btn-time-minus').style.visibility = isHost ? 'visible' : 'hidden';
@@ -176,6 +198,8 @@ function renderRoleCard(state) {
     const my = state.my;
     $('role-card').classList.toggle('peeking', roleShown);
     $('role-card-value').textContent = roleShown && my ? roleLabel(state, my.startRole) : '👀 點我看身分';
+    const myInfo = roleShown && my ? state.roleInfo[my.startRole] : null;
+    $('role-card-desc').textContent = myInfo ? myInfo.desc : '';
 
     const section = $('night-info-section');
     const list = $('night-info');
@@ -191,11 +215,9 @@ function renderRolesInGame(state) {
     let total = 0;
     state.rolesInGame.forEach(({ role, count }) => {
         total += count;
-        const info = state.roleInfo[role];
-        const li = el('li');
-        li.appendChild(el('strong', null, `${info.icon} ${info.name}${count > 1 ? ` ×${count}` : ''}：`));
-        li.appendChild(el('span', null, info.desc));
-        list.appendChild(li);
+        const footer = el('div', 'stepper');
+        footer.appendChild(el('strong', null, `×${count}`));
+        list.appendChild(roleTile(state, role, count, footer));
     });
     $('roles-total').textContent = total;
 }

@@ -57,6 +57,15 @@
 
             <h2 class="lobby-title">🐺 村莊廣場 🐺</h2>
 
+            <div class="lobby-section ww-roles-section">
+                <div class="ww-roles-head">
+                    <h3>🃏 身分配置與能力</h3>
+                    <button id="btn-reset-roles" class="btn btn-brass btn-small"><span>↩️ 恢復建議組合</span></button>
+                </div>
+                <p id="role-count-note" class="setting-note"></p>
+                <div id="role-steppers" class="role-strip"></div>
+            </div>
+
             <div class="lobby-columns">
                 <div class="lobby-section players-section">
                     <h3>👥 在線玩家 (<span id="player-count">0</span>/10)</h3>
@@ -64,11 +73,11 @@
                 </div>
 
                 <div class="lobby-section rules-section">
-                    <h3>⚙️ 身分設定</h3>
+                    <h3>👥 人數建議配置</h3>
+                    <ul id="recommended-list" class="recommended-list"></ul>
+
+                    <h3>⚙️ 其他設定</h3>
                     <div class="ms-settings">
-                        <div id="role-steppers" class="role-steppers"></div>
-                        <p id="role-count-note" class="setting-note"></p>
-                        <button id="btn-reset-roles" class="btn btn-brass btn-small"><span>↩️ 恢復建議組合</span></button>
                         <div class="role-stepper-row">
                             <span>⏱️ 白天討論時間</span>
                             <div class="stepper">
@@ -102,6 +111,7 @@
             <button id="role-card" class="my-card role-card" type="button">
                 <span class="my-card-label">你一開始的身分（點一下顯示／隱藏）</span>
                 <strong id="role-card-value" class="my-card-value">👀 點我看身分</strong>
+                <span id="role-card-desc" class="my-card-desc"></span>
             </button>
 
             <div class="game-dashboard">
@@ -139,7 +149,7 @@
 
             <div class="uc-section">
                 <h3>🃏 這局有的身分（共 <span id="roles-total">0</span> 張，3 張在中間）</h3>
-                <ul id="roles-in-game" class="role-reference-list"></ul>
+                <div id="roles-in-game" class="role-strip"></div>
             </div>
         </div>
     </div>
