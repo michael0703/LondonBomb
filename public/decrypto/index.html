@@ -65,13 +65,28 @@
                 </div>
 
                 <div class="lobby-section rules-section">
+                    <h3>⚙️ 勝負設定</h3>
+                    <div class="ms-settings">
+                        <div class="target-row">
+                            <span>🏆 幾個標記決定勝負</span>
+                            <div class="stepper">
+                                <button id="btn-target-minus" class="btn btn-brass btn-small"><span>－</span></button>
+                                <strong id="setting-target">2</strong> 個
+                                <button id="btn-target-plus" class="btn btn-brass btn-small"><span>＋</span></button>
+                            </div>
+                        </div>
+                        <p id="target-note" class="setting-note"></p>
+                    </div>
+
                     <h3>📋 遊戲規則</h3>
                     <ul>
                         <li>分成兩隊，每隊有 4 個<strong>關鍵字</strong>（編號 1–4），只有自己隊看得到。</li>
                         <li>每回合每隊輪一個<strong>加密者</strong>，手機會給他一組密碼（例如 3-1-4）。他要寫 3 個提示（照密碼順序分別對應那個關鍵字），然後唸出來。</li>
-                        <li>隊友猜出密碼 ➔ 解碼成功；猜錯 ➔ 得到 1 個 <strong>❌ 失誤</strong>。</li>
-                        <li>從第 2 回合起，對手也會同時猜你們的密碼，猜中 ➔ 他們得到 1 個 <strong>🎯 攔截</strong>。</li>
-                        <li><strong>攔截 2 次就贏，失誤 2 次就輸</strong>。8 回合都沒分出勝負，就比「攔截－失誤」。</li>
+                        <li>隊友猜出密碼 ➔ 解碼成功（沒有加分，只是安全過關）；猜錯 ➔ 你們隊得到 1 個 <strong>❌ 失誤</strong>。</li>
+                        <li>從第 2 回合起，對手也會同時猜你們的密碼，猜中 ➔ 他們得到 1 個 <strong>🎯 攔截</strong>；猜錯沒有懲罰。</li>
+                        <li>解碼和攔截<strong>同時、各自送出</strong>，不用等誰先，兩邊都送出後才一起公布答案。</li>
+                        <li id="rule-target"><strong>攔截 2 次就贏，失誤 2 次就輸</strong>。8 回合都沒分出勝負，就比「攔截－失誤」。</li>
+                        <li>公布後，提示會照<strong>正確的密碼</strong>歸到對應的關鍵字底下（不管有沒有猜對）。</li>
                         <li>提示不能直接說出關鍵字（也不能用諧音、翻譯或比手勢）。手機會把每回合的提示整理成表，方便大家推理。</li>
                     </ul>
                     <div class="host-controls">
@@ -86,6 +101,8 @@
 
         <!-- GAME PLAY VIEW -->
         <div id="game-view" class="view-panel">
+            <div id="win-banner" class="win-banner"></div>
+
             <div id="my-words-card" class="my-card words-card">
                 <span id="my-team-label" class="my-card-label">你的隊伍</span>
                 <div id="my-words" class="keyword-grid"></div>

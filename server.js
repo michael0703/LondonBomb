@@ -4433,6 +4433,9 @@ io.on('connection', (socket) => {
 // ================= DECRYPTO (截碼戰) =================
 const DECRYPTO_MAX_PLAYERS = 12;
 const DECRYPTO_MAX_ROUNDS = 8;
+const DECRYPTO_TARGET_DEFAULT = 2;
+const DECRYPTO_TARGET_MIN = 1;
+const DECRYPTO_TARGET_MAX = 4;
 const DECRYPTO_TEAM_NAMES = ['🔵 藍隊', '🔴 紅隊'];
 // All 24 codes: three different digits from 1-4
 const DECRYPTO_CODES = (() => {
@@ -4446,6 +4449,9 @@ const DECRYPTO_CODES = (() => {
 const dcPlayer = (room, id) => room.players.find(p => p.id === id);
 const dcActiveMembers = (room, team) => room.players.filter(p => p.dcTeam === team && !p.dcLeft);
 const dcCodeText = (code) => (code ? code.join('-') : '?');
+// Tokens needed to decide the game (host setting); every extra token adds 2 rounds
+const decryptoTarget = (room) => (room.dcSettings && room.dcSettings.target) || DECRYPTO_TARGET_DEFAULT;
+const decryptoMaxRounds = (target) => DECRYPTO_MAX_ROUNDS + (target - DECRYPTO_TARGET_DEFAULT) * 2;
 
 function isValidDecryptoCode(code) {
   return Array.isArray(code) && code.length === 3 && code.every(d => Number.isInteger(d) && d >= 1 && d <= 4) && new Set(code).size === 3;
@@ -4488,6 +4494,8 @@ function startDecryptoGame(room) {
   room.winnerTeam = null;
   room.history = [];
   resetDecryptoRoom(room);
+  room.dcTarget = decryptoTarget(room);
+  room.dcMaxRounds = decryptoMaxRounds(room.dcTarget);
   const words = shuffle([...DECRYPTO_WORDS]);
   room.dcWords = [words.slice(0, 4), words.slice(4, 8)];
   room.dcCodeDecks = [shuffle(DECRYPTO_CODES.map(c => [...c])), shuffle(DECRYPTO_CODES.map(c => [...c]))];
@@ -4577,18 +4585,19 @@ function endDecryptoGame(room, winner, reason) {
 // After both teams have played the round: check tokens, otherwise start the next round
 function finishDecryptoRound(room) {
   const tk = decryptoTokens(room);
-  const win = [0, 1].map(t => tk[t].intercepts >= 2 || tk[1 - t].misses >= 2);
-  const lastRound = room.dcRound >= DECRYPTO_MAX_ROUNDS;
+  const target = room.dcTarget;
+  const win = [0, 1].map(t => tk[t].intercepts >= target || tk[1 - t].misses >= target);
+  const lastRound = room.dcRound >= room.dcMaxRounds;
   if (win[0] !== win[1]) {
     const w = win[0] ? 0 : 1;
-    const reason = tk[w].intercepts >= 2 ? '成功攔截對手 2 次。' : '對手解碼失敗 2 次。';
+    const reason = tk[w].intercepts >= target ? `成功攔截對手 ${target} 次。` : `對手解碼失敗 ${target} 次。`;
     endDecryptoGame(room, w, reason);
     return;
   }
   if (win[0] || lastRound) {
     // Both sides triggered at once, or the rounds ran out: intercepts minus misses decides
     const score = tk.map(x => x.intercepts - x.misses);
-    const head = lastRound && !win[0] ? `${DECRYPTO_MAX_ROUNDS} 回合結束，` : '兩隊同時達成條件，';
+    const head = lastRound && !win[0] ? `${room.dcMaxRounds} 回合結束，` : '兩隊同時達成條件，';
     if (score[0] !== score[1]) {
       const w = score[0] > score[1] ? 0 : 1;
       endDecryptoGame(room, w, `${head}比分數（攔截－失誤）${score[w]} 比 ${score[1 - w]}。`);
@@ -4653,7 +4662,9 @@ function getDecryptoRoomState(room, socketId) {
     roundPhase: phase,
     setupError: room.gameStarted ? null : decryptoSetupError(room),
     round: room.dcRound || 0,
-    maxRounds: DECRYPTO_MAX_ROUNDS,
+    target: room.gameStarted ? room.dcTarget : decryptoTarget(room),
+    maxRounds: room.gameStarted ? room.dcMaxRounds : decryptoMaxRounds(decryptoTarget(room)),
+    targetRange: [DECRYPTO_TARGET_MIN, DECRYPTO_TARGET_MAX],
     teams,
     myTeam,
     myCode: amEncryptor && phase === 'clue' ? room.dcCodes[myTeam] : (amEncryptor && phase === 'guess' && active === myTeam ? room.dcCodes[myTeam] : null),
@@ -4713,6 +4724,16 @@ io.on('connection', (socket) => {
     const me = dcPlayer(room, socket.id);
     if (!me || !me.host) return;
     shuffle([...room.players]).forEach((p, i) => { p.dcTeam = i % 2; });
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host changes how many tokens decide the game
+  socket.on('decrypto_settings', ({ target } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'decrypto' || room.gameStarted) return;
+    const player = dcPlayer(room, socket.id);
+    if (!player || !player.host || !Number.isInteger(target)) return;
+    room.dcSettings = { target: Math.max(DECRYPTO_TARGET_MIN, Math.min(DECRYPTO_TARGET_MAX, target)) };
     broadcastRoomUpdate(room);
   });
 

@@ -127,6 +127,14 @@ function renderWaitingRoom(state) {
     });
     $('btn-shuffle-teams').style.display = isHost ? 'inline-block' : 'none';
 
+    // Token target (host adjusts)
+    const [minTarget, maxTarget] = state.targetRange;
+    $('setting-target').textContent = state.target;
+    $('btn-target-minus').style.visibility = isHost && state.target > minTarget ? 'visible' : 'hidden';
+    $('btn-target-plus').style.visibility = isHost && state.target < maxTarget ? 'visible' : 'hidden';
+    $('target-note').textContent = `先拿到 ${state.target} 個🎯攔截就贏，累積 ${state.target} 個❌失誤就輸；最多 ${state.maxRounds} 回合。${isHost ? '（預設 2 個，想玩久一點可以調高）' : ''}`;
+    $('rule-target').innerHTML = `<strong>攔截 ${state.target} 次就贏，失誤 ${state.target} 次就輸</strong>。${state.maxRounds} 回合都沒分出勝負（或兩隊同一回合同時達成），就比「攔截－失誤」，一樣就平手。`;
+
     const startBtn = $('btn-start-game');
     const statusMsg = $('lobby-status-msg');
     if (isHost) {
@@ -360,6 +368,15 @@ function renderGameOver(state) {
     modal.classList.add('active');
 }
 
+// WIN CONDITION, always pinned at the top of the game screen
+function renderWinBanner(state) {
+    const box = $('win-banner');
+    box.innerHTML = '';
+    box.appendChild(el('div', 'win-banner-title', `🏆 勝利條件：先拿到 ${state.target} 個 🎯攔截 就贏｜累積 ${state.target} 個 ❌失誤 就輸`));
+    box.appendChild(el('div', 'win-banner-sub',
+        `🎯 攔截＝猜中對手的密碼（第 2 回合起）｜❌ 失誤＝自己隊解碼猜錯｜猜對自己的密碼不加分｜${state.maxRounds} 回合後比「攔截－失誤」`));
+}
+
 // RENDER MAIN GAME BOARD
 function renderGameBoard(state, local = false) {
     latestState = state;
@@ -372,8 +389,9 @@ function renderGameBoard(state, local = false) {
     if (local) builtPanelKey = null;
     $('display-round').textContent = `${state.round}/${state.maxRounds}`;
     state.teams.forEach((team, t) => {
-        $(`display-tokens-${t}`).textContent = `🎯${team.intercepts} ❌${team.misses}`;
+        $(`display-tokens-${t}`).textContent = `🎯${team.intercepts}/${state.target} ❌${team.misses}/${state.target}`;
     });
+    renderWinBanner(state);
     renderMyWords(state);
     $('ticker-text').textContent = renderControls(state);
     const mine = state.myTeam === null ? 0 : state.myTeam;
@@ -415,6 +433,15 @@ function initEvents() {
     $('btn-shuffle-teams').addEventListener('click', () => {
         AudioSynth.playTick();
         socket.emit('decrypto_shuffleTeams');
+    });
+
+    $('btn-target-minus').addEventListener('click', () => {
+        AudioSynth.playTick();
+        socket.emit('decrypto_settings', { target: latestState.target - 1 });
+    });
+    $('btn-target-plus').addEventListener('click', () => {
+        AudioSynth.playTick();
+        socket.emit('decrypto_settings', { target: latestState.target + 1 });
     });
 
     $('btn-start-game').addEventListener('click', () => {
