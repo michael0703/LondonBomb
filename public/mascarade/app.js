@@ -337,7 +337,9 @@ function renderControls(state) {
             return '📢 選擇要宣告的角色';
         }
 
-        if (state.forcedSwap) {
+        if (state.mustSwapAfterReveal) {
+            hint('輪到你了！你的牌上一回合剛被翻開，你已經知道自己是誰，這回合只能交換（或假裝交換）。');
+        } else if (state.forcedSwap) {
             hint(`輪到你了！前 ${state.forcedSwapTurns} 回合只能交換（目前第 ${state.turn + 1} 回合）。`);
         } else {
             hint('輪到你了！選一個行動：');
@@ -483,10 +485,19 @@ function renderGameOver(state) {
     [...state.players].sort((a, b) => b.coins - a.coins).forEach(p => {
         const li = el('li');
         if (state.winners.includes(p.id)) li.classList.add('rank-first');
-        li.appendChild(el('span', null, `${state.winners.includes(p.id) ? '🏆 ' : ''}${p.name}｜${roleLabel(state, p.card)}`));
+        // Starting card ➔ final card, so everyone can see how the masks moved
+        const roles = p.startCard && p.startCard !== p.card
+            ? `本來 ${roleLabel(state, p.startCard)} ➔ 最後 ${roleLabel(state, p.card)}`
+            : `${roleLabel(state, p.card)}（沒變）`;
+        li.appendChild(el('span', null, `${state.winners.includes(p.id) ? '🏆 ' : ''}${p.name}｜${roles}`));
         li.appendChild(el('strong', null, `🪙 ${p.coins}`));
         list.appendChild(li);
     });
+    $('center-final').textContent = state.center.length
+        ? '中間的牌：' + state.center.map((c, i) => `第 ${i + 1} 張 ${c.startCard && c.startCard !== c.card
+            ? `本來 ${roleLabel(state, c.startCard)} ➔ 最後 ${roleLabel(state, c.card)}`
+            : roleLabel(state, c.card)}`).join('｜')
+        : '';
     const me = state.players.find(p => p.id === socket.id);
     $('btn-restart').style.display = me ? 'inline-block' : 'none';
     modal.classList.add('active');

@@ -3416,8 +3416,12 @@ function resetMascaradeRoom(room) {
   room.msLastAction = null;
   room.msRevealLog = [];
   room.msWinners = [];
+  room.msCenterStart = [];
+  room.msJustRevealedIds = [];
+  room.msMustSwap = false;
   room.players.forEach(p => {
     p.msCard = null;
+    p.msStartCard = null;
     p.msCoins = 0;
     p.msLeft = false;
   });
@@ -3481,7 +3485,8 @@ function getMascaradeRoomState(room, socketId) {
     isBot: false,
     left: !!p.msLeft,
     coins: p.msCoins || 0,
-    card: revealAll ? p.msCard : null
+    card: revealAll ? p.msCard : null,
+    startCard: room.gameEnded ? p.msStartCard : null
   }));
 
   // Only the spy sees what they peeked at
@@ -3504,10 +3509,15 @@ function getMascaradeRoomState(room, socketId) {
     setup: { ...setup, error: mascaradeSetupError(setup), defaultRoles: defaultMascaradeSet(setup.total) },
     roleInfo: MASCARADE_ROLES,
     rolesInGame: room.gameStarted ? (room.msRolesInGame || []) : setup.roles,
-    center: (room.msCenter || []).map((card, i) => ({ id: `center${i}`, card: revealAll ? card : null })),
+    center: (room.msCenter || []).map((card, i) => ({
+      id: `center${i}`,
+      card: revealAll ? card : null,
+      startCard: room.gameEnded ? (room.msCenterStart || [])[i] || null : null
+    })),
     court: room.msCourt || 0,
     turn: room.msTurn || 0,
-    forcedSwap: (room.msTurn || 0) < MASCARADE_FORCED_SWAP_TURNS,
+    forcedSwap: (room.msTurn || 0) < MASCARADE_FORCED_SWAP_TURNS || !!room.msMustSwap,
+    mustSwapAfterReveal: !!room.msMustSwap,
     forcedSwapTurns: MASCARADE_FORCED_SWAP_TURNS,
     winCoins: MASCARADE_WIN_COINS,
     activePlayerId: room.activePlayerId || null,
@@ -3547,9 +3557,11 @@ function startMascaradeGame(room) {
   const cards = shuffle(mascaradeCardsFor(setup.roles));
   room.players.forEach((p, i) => {
     p.msCard = cards[i];
+    p.msStartCard = cards[i];
     p.msCoins = MASCARADE_START_COINS;
   });
   room.msCenter = cards.slice(room.players.length);
+  room.msCenterStart = [...room.msCenter];
 
   const first = room.players[Math.floor(Math.random() * room.players.length)];
   room.activePlayerId = first.id;
@@ -3572,7 +3584,18 @@ function msNextTurn(room) {
       break;
     }
   }
+  // A player whose card was revealed during the turn just played already knows
+  // who they are, so if it's their turn right away they may only swap
+  room.msMustSwap = (room.msJustRevealedIds || []).includes(room.activePlayerId);
+  room.msJustRevealedIds = [];
   room.roundPhase = 'action';
+}
+
+// Peek and claim are not allowed in the opening turns or right after your card was revealed
+function msSwapOnlyError(room) {
+  if (room.msTurn < MASCARADE_FORCED_SWAP_TURNS) return `前 ${MASCARADE_FORCED_SWAP_TURNS} 回合只能交換。`;
+  if (room.msMustSwap) return '你的牌上一回合剛被翻開，你已經知道自己是誰了，這回合只能交換。';
+  return null;
 }
 
 // Everyone except the claimer gets to counter-claim (players who left are skipped)
@@ -3629,6 +3652,7 @@ function resolveMascaradeClaim(room) {
     result.effects.push(`沒有人質疑，${claimer.name} 以${msRoleName(role)}的身分發動能力（不用亮牌）。`);
   } else {
     result.reveals = claimants.map(p => ({ id: p.id, name: p.name, role: p.msCard, truthful: p.msCard === role }));
+    room.msJustRevealedIds = claimants.map(p => p.id);
     if (room.msSettings && room.msSettings.keepLog) {
       room.msRevealLog.push({ turn: room.msTurn + 1, claimRole: role, entries: result.reveals.map(r => ({ name: r.name, role: r.role })) });
     }
@@ -3827,8 +3851,9 @@ io.on('connection', (socket) => {
     if (!ctx) return;
     const { room, player } = ctx;
     if (room.activePlayerId !== player.id) return;
-    if (room.msTurn < MASCARADE_FORCED_SWAP_TURNS) {
-      socket.emit('errorMsg', `前 ${MASCARADE_FORCED_SWAP_TURNS} 回合只能交換。`);
+    const swapOnly = msSwapOnlyError(room);
+    if (swapOnly) {
+      socket.emit('errorMsg', swapOnly);
       return;
     }
     socket.emit('mascarade_peek', { cards: [{ label: '你的牌', role: player.msCard }] });
@@ -3843,8 +3868,9 @@ io.on('connection', (socket) => {
     if (!ctx) return;
     const { room, player } = ctx;
     if (room.activePlayerId !== player.id) return;
-    if (room.msTurn < MASCARADE_FORCED_SWAP_TURNS) {
-      socket.emit('errorMsg', `前 ${MASCARADE_FORCED_SWAP_TURNS} 回合只能交換。`);
+    const swapOnly = msSwapOnlyError(room);
+    if (swapOnly) {
+      socket.emit('errorMsg', swapOnly);
       return;
     }
     if (!room.msRolesInGame.includes(role)) return;
@@ -3940,6 +3966,7 @@ io.on('connection', (socket) => {
     const fx = room.msResult.effects;
     const correct = target.msCard === role;
     room.msResult.reveals.push({ id: target.id, name: target.name, role: target.msCard, truthful: correct });
+    room.msJustRevealedIds = [...new Set([...(room.msJustRevealedIds || []), target.id])];
     if (room.msSettings && room.msSettings.keepLog) {
       room.msRevealLog.push({ turn: room.msTurn + 1, claimRole: 'inquisitor', entries: [{ name: target.name, role: target.msCard }] });
     }
