@@ -52,12 +52,11 @@ const STATUS_LABELS = {
     left: '已離開'
 };
 
-const ANSWER_LABELS = { yes: '是', no: '不是', unsure: '不確定', text: '' };
+const ANSWER_LABELS = { yes: '是', no: '不是', unsure: '不確定', text: '', pass: '🙈 不回答' };
 
 let latestState = null;
 let selectedPlayerId = null;
 let lastActivePlayerId = null;
-const skippedQuestions = new Set(); // `${activeId}:${questionId}` the player chose not to answer
 let lastSoundKey = null;
 
 function switchView(name) {
@@ -260,6 +259,7 @@ function renderQaList(state) {
 // SWITCH BOTTOM CONTROL PANELS
 function renderControls(state, me, active) {
     ['panel-ask', 'panel-answer', 'panel-judge', 'panel-spectating'].forEach(id => $(id).classList.remove('active'));
+    $('btn-force-judge-self').style.display = 'none';
     const spectate = (text) => {
         $('panel-spectating').classList.add('active');
         $('panel-spectating').querySelector('.control-hint').textContent = text;
@@ -277,6 +277,7 @@ function renderControls(state, me, active) {
         if (state.roundPhase === 'judging') {
             const n = state.pendingGuess && state.pendingGuess.judgments ? state.pendingGuess.judgments.length : 0;
             spectate(`你猜了「${state.pendingGuess ? state.pendingGuess.text : ''}」，等待其他人判定...（已有 ${n} 人判定，需要 ${state.judgesNeeded} 人一致）`);
+            $('btn-force-judge-self').style.display = me.host ? 'inline-block' : 'none';
             return '🎯 等待其他人判定你的猜測！';
         }
         $('panel-ask').classList.add('active');
@@ -295,6 +296,7 @@ function renderControls(state, me, active) {
         return `🎤 輪到你發問！目前已問 ${me.questionCount} 題。`;
     }
 
+    let ticker = null;
     if (state.roundPhase === 'judging' && state.pendingGuess) {
         $('panel-judge').classList.add('active');
         $('judge-asker').textContent = active.name;
@@ -307,22 +309,21 @@ function renderControls(state, me, active) {
             + (mine ? `｜你：${mine.correct ? '猜對了' : '猜錯了'}（可以改）` : '');
         $('btn-judge-correct').classList.toggle('chosen', !!mine && mine.correct);
         $('btn-judge-wrong').classList.toggle('chosen', !!mine && !mine.correct);
-        return `🎯 ${active.name} 猜「${state.pendingGuess.text}」，請判定對錯！`;
+        $('btn-force-judge').style.display = me.host ? 'inline-block' : 'none';
+        ticker = `🎯 ${active.name} 猜「${state.pendingGuess.text}」，請判定對錯！`;
     }
 
-    // Only the latest question can be answered; older ones you skipped are left to the others
-    const unanswered = lastQuestion
-        && !lastQuestion.answers.some(a => a.playerId === me.id)
-        && !skippedQuestions.has(`${active.id}:${lastQuestion.id}`)
-        ? lastQuestion : null;
+    // Only the latest question can be answered, also while a guess is being judged
+    const unanswered = lastQuestion && !lastQuestion.answers.some(a => a.playerId === me.id) ? lastQuestion : null;
     if (unanswered) {
         $('panel-answer').classList.add('active');
         $('panel-answer').dataset.questionId = unanswered.id;
         $('answer-asker').textContent = active.name;
         $('answer-question').textContent = unanswered.text;
         $('answer-celebrity').textContent = active.celebrity ? active.celebrity.name : '';
-        return `❓ ${active.name} 問：「${unanswered.text}」，請誠實回答！`;
+        return ticker || `❓ ${active.name} 問：「${unanswered.text}」，請誠實回答！`;
     }
+    if (ticker) return ticker;
 
     spectate(`等待 ${active.name} 發問中...`);
     return `🎤 ${active.name} 正在思考下一個問題（已問 ${active.questionCount} 題）。`;
@@ -509,17 +510,19 @@ function initEvents() {
         $('input-note').value = '';
     }
 
+    ['btn-force-judge', 'btn-force-judge-self'].forEach(id => $(id).addEventListener('click', () => {
+        if (!confirm('還有人沒判定，確定用目前的判定結算嗎？（猜對比猜錯多才算猜對）')) return;
+        AudioSynth.playTick();
+        socket.emit('whoami_forceJudge');
+    }));
+
     document.querySelectorAll('#panel-answer [data-answer]').forEach(btn => {
         btn.addEventListener('click', () => sendAnswer(btn.dataset.answer));
     });
     // Free-text answer for open questions ("演過什麼電影？")
     $('btn-answer-text').addEventListener('click', () => sendAnswer('text'));
-    $('btn-answer-skip').addEventListener('click', () => {
-        AudioSynth.playTick();
-        skippedQuestions.add(`${latestState.activePlayerId}:${$('panel-answer').dataset.questionId}`);
-        $('input-note').value = '';
-        renderGameBoard(latestState);
-    });
+    // Not answering is recorded too, so the asker isn't stuck if everyone skips
+    $('btn-answer-skip').addEventListener('click', () => sendAnswer('pass'));
     $('input-note').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) sendAnswer('text'); });
 
     $('btn-open-proposal').addEventListener('click', () => {

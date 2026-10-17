@@ -2445,7 +2445,8 @@ function triggerTopTenBotsReady(room) {
 // give up. Guesses don't count as questions, but a player may only have made
 // (questions asked + 1) guesses in total. Fewest questions wins.
 
-const WHOAMI_ANSWERS = ['yes', 'no', 'unsure', 'text'];
+// 'pass' = chose not to answer; it still counts, so the asker can move on
+const WHOAMI_ANSWERS = ['yes', 'no', 'unsure', 'text', 'pass'];
 const WHOAMI_JUDGES_NEEDED = 2;
 
 // 數字猜猜我是誰 (whonum) runs on the same engine: the "celebrity" is a number
@@ -2616,7 +2617,8 @@ function whoamiJudgesNeeded(room, active) {
   return Math.min(WHOAMI_JUDGES_NEEDED, Math.max(1, whoamiJudges(room, active).length));
 }
 
-function resolveWhoamiGuess(room, active) {
+// force: the host stops waiting; the judgments so far decide (a tie or none counts as wrong)
+function resolveWhoamiGuess(room, active, { force = false } = {}) {
   const pending = room.pendingGuess;
   if (!pending || room.roundPhase !== 'judging') return;
   const judgeIds = whoamiJudges(room, active).map(p => p.id);
@@ -2629,9 +2631,10 @@ function resolveWhoamiGuess(room, active) {
   if (yes.length >= needed) isCorrect = true;
   else if (no.length >= needed) isCorrect = false;
   else if (judgments.length >= judgeIds.length) isCorrect = false; // everyone judged but split: not confirmed
+  else if (force) isCorrect = yes.length > no.length;
   else return;
 
-  const deciders = (isCorrect ? yes : no).map(j => j.name).join('、') || judgments.map(j => j.name).join('、');
+  const deciders = (isCorrect ? yes : no).map(j => j.name).join('、') || judgments.map(j => j.name).join('、') || '房主';
   active.guesses.push({
     text: pending.text,
     correct: isCorrect,
@@ -2816,6 +2819,16 @@ io.on('connection', (socket) => {
   });
 
   // Event: Active player gives up
+  // Event: Host stops waiting for judges; the judgments so far decide
+  socket.on('whoami_forceJudge', () => {
+    const ctx = getWhoamiTurnContext(socket, 'judging');
+    if (!ctx || !ctx.player.host) return;
+    const { room, active } = ctx;
+    addLog(room, 'system', '⏭️ 房主不等了，用目前的判定結算。');
+    resolveWhoamiGuess(room, active, { force: true });
+    broadcastRoomUpdate(room);
+  });
+
   socket.on('whoami_giveUp', () => {
     const ctx = getWhoamiTurnContext(socket);
     if (!ctx) return;
