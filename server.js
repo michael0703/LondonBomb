@@ -185,7 +185,7 @@ function getSanitizedRoomState(room, socketId) {
     };
   }
 
-  if (room.gameType === 'whoami') {
+  if (isWhoamiGame(room)) {
     return getWhoamiRoomState(room, socketId);
   }
 
@@ -418,7 +418,7 @@ function handlePlayerDeparture(room, player, permanent) {
     handleDecryptoDeparture(room, player);
   }
 
-  if (room.gameType === 'whoami') {
+  if (isWhoamiGame(room)) {
     if (permanent) {
       handleWhoamiDisconnect(room, player);
       checkWhoamiProposal(room);
@@ -683,7 +683,7 @@ io.on('connection', (socket) => {
   socket.on('addBot', () => {
     let room = getRoomBySocket(socket);
     if (!room || room.gameStarted || room.players.length >= 8) return;
-    if (room.gameType === 'whoami') {
+    if (isWhoamiGame(room)) {
       socket.emit('errorMsg', '名人猜猜我是誰需要真人回答，無法加入 AI 機器人。');
       return;
     }
@@ -806,14 +806,14 @@ io.on('connection', (socket) => {
         socket.emit('errorMsg', '遊戲需要 4 到 8 名玩家/機器人才能開始。');
         return;
       }
-    } else if (room.gameType === 'whoami') {
+    } else if (isWhoamiGame(room)) {
       if (playerCount < 2 || playerCount > 8) {
         socket.emit('errorMsg', '遊戲需要 2 到 8 名玩家才能開始。');
         return;
       }
     }
 
-    if (room.gameType === 'whoami') {
+    if (isWhoamiGame(room)) {
       startWhoamiGame(room);
       return;
     }
@@ -1226,7 +1226,7 @@ io.on('connection', (socket) => {
       p.eliminated = false;
     });
 
-    if (room.gameType === 'whoami') {
+    if (isWhoamiGame(room)) {
       resetWhoamiRoom(room);
     }
     if (room.gameType === 'undercover') {
@@ -2448,7 +2448,26 @@ function triggerTopTenBotsReady(room) {
 const WHOAMI_ANSWERS = ['yes', 'no', 'unsure', 'text'];
 const WHOAMI_JUDGES_NEEDED = 2;
 
+// 數字猜猜我是誰 (whonum) runs on the same engine: the "celebrity" is a number
+// 1–100 (repeats allowed), guesses are checked by the server instead of judges,
+// and there is no redraw.
+const WHONUM_MIN = 1;
+const WHONUM_MAX = 100;
+
+function isWhoamiGame(room) {
+  return room.gameType === 'whoami' || room.gameType === 'whonum';
+}
+
+function parseWhonum(text) {
+  const n = Number(String(text || '').trim());
+  return Number.isInteger(n) && n >= WHONUM_MIN && n <= WHONUM_MAX ? n : null;
+}
+
 function drawWhoamiCelebrity(room) {
+  if (room.gameType === 'whonum') {
+    const n = WHONUM_MIN + Math.floor(Math.random() * (WHONUM_MAX - WHONUM_MIN + 1));
+    return { id: `num_${n}`, name: String(n), category: '數字' };
+  }
   if (!room.usedCelebrityIds) room.usedCelebrityIds = [];
   let available = WHOAMI_CELEBRITIES.filter(c => !room.usedCelebrityIds.includes(c.id));
   if (available.length === 0) {
@@ -2549,7 +2568,9 @@ function startWhoamiGame(room) {
   room.whoamiTurnOrder = shuffle(room.players.map(p => p.id));
 
   const orderNames = room.whoamiTurnOrder.map(id => room.players.find(p => p.id === id).name);
-  addLog(room, 'system', '🎭 名人猜猜我是誰開始！每個人都抽到了一位名人，你看得到別人的，卻看不到自己的。');
+  addLog(room, 'system', room.gameType === 'whonum'
+    ? `🔢 數字猜猜我是誰開始！每個人都抽到一個 ${WHONUM_MIN}–${WHONUM_MAX} 的數字，你看得到別人的，卻看不到自己的。`
+    : '🎭 名人猜猜我是誰開始！每個人都抽到了一位名人，你看得到別人的，卻看不到自己的。');
   addLog(room, 'system', `猜題順序：${orderNames.join(' ➔ ')}`);
   advanceWhoamiTurn(room);
   broadcastRoomUpdate(room);
@@ -2579,7 +2600,7 @@ function advanceWhoamiTurn(room) {
 
 function getWhoamiTurnContext(socket, phase) {
   const room = getRoomBySocket(socket);
-  if (!room || room.gameType !== 'whoami' || !room.gameStarted || room.gameEnded) return null;
+  if (!room || !isWhoamiGame(room) || !room.gameStarted || room.gameEnded) return null;
   if (phase && room.roundPhase !== phase) return null;
   const player = room.players.find(p => p.id === socket.id);
   const active = room.players.find(p => p.id === room.activePlayerId);
@@ -2747,13 +2768,29 @@ io.on('connection', (socket) => {
     if (!ctx) return;
     const { room, player, active } = ctx;
     if (player.id !== active.id) return;
-    const guess = String(text || '').trim().slice(0, 40);
+    const isNum = room.gameType === 'whonum';
+    const guess = isNum ? parseWhonum(text) : String(text || '').trim().slice(0, 40);
     if (!guess) {
-      socket.emit('errorMsg', '請輸入你猜的名人。');
+      socket.emit('errorMsg', isNum ? `請輸入 ${WHONUM_MIN}–${WHONUM_MAX} 的整數。` : '請輸入你猜的名人。');
       return;
     }
     if (whoamiGuessesLeft(active) <= 0) {
       socket.emit('errorMsg', '猜測次數已用完（最多＝已問題數＋1），請再問一題。');
+      return;
+    }
+
+    if (isNum) {
+      // Numbers are checked right away, no judges needed
+      const correct = String(guess) === active.celebrity.name;
+      active.guesses.push({ text: String(guess), correct, judgeName: '系統', afterQuestions: active.questions.length });
+      if (correct) {
+        active.whoamiStatus = 'solved';
+        addLog(room, 'system', `🎉 ${active.name} 猜 ${guess}，猜對了！共問了 ${active.questions.length} 題。`);
+        advanceWhoamiTurn(room);
+      } else {
+        addLog(room, 'guess', `❌ ${active.name} 猜 ${guess}，猜錯了！繼續發問。`);
+      }
+      broadcastRoomUpdate(room);
       return;
     }
 
@@ -2801,9 +2838,10 @@ io.on('connection', (socket) => {
       socket.emit('errorMsg', '已經有一個自訂題目在投票中了。');
       return;
     }
-    const celebName = String(name || '').trim().slice(0, 30);
+    const isNum = room.gameType === 'whonum';
+    const celebName = isNum ? String(parseWhonum(name) || '') : String(name || '').trim().slice(0, 30);
     if (!celebName) {
-      socket.emit('errorMsg', '請輸入要出的名人。');
+      socket.emit('errorMsg', isNum ? `請輸入 ${WHONUM_MIN}–${WHONUM_MAX} 的整數。` : '請輸入要出的名人。');
       return;
     }
     room.whoamiProposal = { proposerId: player.id, targetId: active.id, name: celebName, yesIds: [], noIds: [] };
@@ -2818,7 +2856,7 @@ io.on('connection', (socket) => {
   // Event: Vote on the pending custom celebrity proposal
   socket.on('whoami_voteCustom', ({ agree } = {}) => {
     const room = getRoomBySocket(socket);
-    if (!room || room.gameType !== 'whoami' || !room.gameStarted || room.gameEnded) return;
+    if (!room || !isWhoamiGame(room) || !room.gameStarted || room.gameEnded) return;
     const pr = room.whoamiProposal;
     if (!pr || !whoamiProposalVoters(room).some(p => p.id === socket.id)) return;
     pr.yesIds = pr.yesIds.filter(id => id !== socket.id);
@@ -2831,7 +2869,7 @@ io.on('connection', (socket) => {
   // Event: Host skips the current asker; they keep their questions and go to the back of the queue
   socket.on('whoami_skipTurn', () => {
     const room = getRoomBySocket(socket);
-    if (!room || room.gameType !== 'whoami' || !room.gameStarted || room.gameEnded) return;
+    if (!room || !isWhoamiGame(room) || !room.gameStarted || room.gameEnded) return;
     const host = room.players.find(p => p.id === socket.id);
     if (!host || !host.host) {
       socket.emit('errorMsg', '只有房主可以跳過玩家。');
@@ -2850,6 +2888,7 @@ io.on('connection', (socket) => {
   // Event: Host redraws a player's celebrity (e.g. nobody knows who it is)
   socket.on('whoami_redraw', ({ targetPlayerId } = {}) => {
     const room = getRoomBySocket(socket);
+    // Number edition has no redraw: everyone knows every number
     if (!room || room.gameType !== 'whoami' || !room.gameStarted || room.gameEnded) return;
     const host = room.players.find(p => p.id === socket.id);
     if (!host || !host.host) {

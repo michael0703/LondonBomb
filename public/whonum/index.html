@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>數字猜猜我是誰 | 桌遊入口</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- NICKNAME & LOBBY LOGIN VIEW -->
+        <div id="login-view" class="view-panel active">
+            <div class="steampunk-border"></div>
+
+            <h1 class="logo-text">🔢 數字猜猜我是誰 🔢</h1>
+            <p class="logo-subtext">看得到別人的數字，卻看不到自己的</p>
+
+            <div class="input-group">
+                <label for="input-nickname">輸入你的暱稱</label>
+                <input type="text" id="input-nickname" placeholder="例如：福爾摩斯..." maxlength="10">
+            </div>
+
+            <div class="input-group">
+                <label for="input-room-code">房號 (加入已有房間)</label>
+                <input type="text" id="input-room-code" placeholder="例如：ABCD..." maxlength="4" style="text-transform: uppercase;">
+            </div>
+
+            <div class="button-row">
+                <button id="btn-create-room" class="btn btn-gold">
+                    <span>創建新房間</span>
+                </button>
+                <button id="btn-join-room" class="btn btn-brass">
+                    <span>加入已有房間</span>
+                </button>
+            </div>
+
+            <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="margin: 15px auto 0; width: 100%; max-width: 320px;">
+                <span>⬅️ 返回桌遊入口</span>
+            </button>
+        </div>
+
+        <!-- WAITING LOBBY VIEW -->
+        <div id="waiting-view" class="view-panel">
+            <div class="steampunk-border"></div>
+            <div class="lobby-header">
+                <div class="room-indicator">
+                    <span class="label">當前房號</span>
+                    <span id="display-room-code" class="value">----</span>
+                </div>
+                <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">
+                    <span>🚪 離開大廳</span>
+                </button>
+            </div>
+
+            <h2 class="lobby-title">🔢 候場休息室 🔢</h2>
+
+            <div class="lobby-columns">
+                <div class="lobby-section players-section">
+                    <h3>👥 在線玩家 (<span id="player-count">0</span>/8)</h3>
+                    <ul id="lobby-players-list"></ul>
+                </div>
+
+                <div class="lobby-section rules-section">
+                    <h3>📋 遊戲規則</h3>
+                    <ul>
+                        <li>每個人隨機抽一個 <strong>1–100 的數字</strong>（可能和別人重複）：你看得到別人的數字，<strong>看不到自己的</strong>。</li>
+                        <li>輪到你時，一直向大家<strong>發問</strong>（例如「我比 50 大嗎？」「我是偶數嗎？」），直到猜中或放棄才換下一位。</li>
+                        <li>其他人用「是／不是／不確定」回答，可以打字補充，<strong>不可以說謊</strong>！</li>
+                        <li>隨時可以<strong>猜答案</strong>，<strong>系統自動判定</strong>對錯。猜測不算題數，但累計猜測次數最多只能是<strong>已問題數＋1</strong>。</li>
+                        <li>最後比較題數，<strong>用最少問題猜中</strong>的人獲勝；放棄的人排在最後。</li>
+                        <li>想讓發問的人猜別的數字？其他人可以<strong>自創題目</strong>：除了發問者和出題者以外，同意比不同意多就換成新題目（題數重新計算），發問者看不到題目。</li>
+                        <li>有人想先暫停，房主可以<strong>跳過</strong>他：已問的題數保留，排到最後再繼續。</li>
+                    </ul>
+                    <div class="host-controls">
+                        <p id="lobby-status-msg" class="status-msg">等待其他玩家加入...</p>
+                        <button id="btn-start-game" class="btn btn-gold btn-large disabled" disabled>
+                            <span>開始遊戲</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GAME PLAY VIEW -->
+        <div id="game-view" class="view-panel">
+            <div class="secret-info-bar">
+                <span>🔢 你的數字：<strong id="display-my-celebrity" class="text-gold">？？？</strong></span>
+            </div>
+
+            <div class="game-dashboard">
+                <div class="dash-item">
+                    <div class="dash-label">目前階段</div>
+                    <div id="display-phase" class="dash-value">準備中</div>
+                </div>
+                <div class="dash-item active-player-dash">
+                    <div class="dash-label">發問中</div>
+                    <div id="display-active-player" class="dash-value">-</div>
+                </div>
+                <div class="dash-item">
+                    <div class="dash-label">已問題數</div>
+                    <div id="display-question-count" class="dash-value">0</div>
+                </div>
+                <div class="dash-item">
+                    <div class="dash-label">完成進度</div>
+                    <div id="display-progress" class="dash-value">0 / 0</div>
+                </div>
+                <div class="dash-item exit-dash">
+                    <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="padding: 6px 12px; font-size: 0.8rem; height: 42px; width: 100px;">
+                        <span>🚪 離開</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="ticker-banner">
+                <span id="ticker-text">遊戲準備中...</span>
+            </div>
+
+            <div class="whoami-layout">
+                <div class="whoami-section">
+                    <h3>👥 玩家與數字</h3>
+                    <div id="players-grid" class="players-grid"></div>
+                </div>
+                <div class="whoami-section">
+                    <h3 id="qa-title">💬 問答紀錄</h3>
+                    <div id="qa-list" class="qa-list"></div>
+                </div>
+            </div>
+
+            <div class="bottom-controls">
+                <!-- Active player: ask / guess / give up -->
+                <div id="panel-ask" class="control-sub-panel">
+                    <div id="ask-hint" class="control-hint">輪到你了！問大家一個問題來縮小範圍吧。</div>
+                    <div class="answering-form">
+                        <input type="text" id="input-question" placeholder="例如：我比 50 大嗎？" maxlength="80">
+                        <button id="btn-ask" class="btn btn-gold"><span>❓ 發問</span></button>
+                    </div>
+                    <div class="answering-form">
+                        <input type="number" id="input-guess" placeholder="覺得知道了？輸入你猜的數字" min="1" max="100" inputmode="numeric">
+                        <button id="btn-guess" class="btn btn-brass"><span>🎯 猜答案</span></button>
+                    </div>
+                    <div class="ask-footer">
+                        <span id="guess-quota" class="guess-quota">剩餘猜測次數：1</span>
+                        <button id="btn-give-up" class="btn btn-brass btn-small"><span>🏳️ 放棄</span></button>
+                    </div>
+                </div>
+
+                <!-- Others: answer the pending question -->
+                <div id="panel-answer" class="control-sub-panel">
+                    <div class="control-hint">
+                        <span id="answer-asker">某人</span> 問：<strong id="answer-question" class="text-gold"></strong>
+                        <br><small>（他的數字是：<strong id="answer-celebrity"></strong>，請誠實回答）</small>
+                    </div>
+                    <div class="answering-form">
+                        <input type="text" id="input-note" placeholder="直接打答案，例如：比 50 大，但比 70 小" maxlength="60">
+                        <button id="btn-answer-text" class="btn btn-gold"><span>💬 送出</span></button>
+                    </div>
+                    <div class="answer-or-hint">或按下方按鈕快速回答（上面有打字的話會一起當補充說明）</div>
+                    <div class="quick-answer-row">
+                        <button class="btn btn-answer answer-yes" data-answer="yes"><span>⭕ 是</span></button>
+                        <button class="btn btn-answer answer-no" data-answer="no"><span>❌ 不是</span></button>
+                        <button class="btn btn-answer answer-unsure" data-answer="unsure"><span>🤔 不確定</span></button>
+                    </div>
+                    <button id="btn-answer-skip" class="btn btn-brass btn-small"><span>🙈 這題我不回答</span></button>
+                </div>
+
+                <!-- Others: judge a guess -->
+                <div id="panel-judge" class="control-sub-panel">
+                    <div class="control-hint">
+                        <span id="judge-asker">某人</span> 猜：<strong id="judge-guess" class="text-gold"></strong>
+                        <br><small>正確答案是：<strong id="judge-celebrity"></strong></small>
+                    </div>
+                    <div class="quick-answer-row">
+                        <button id="btn-judge-correct" class="btn btn-answer answer-yes"><span>✅ 猜對了</span></button>
+                        <button id="btn-judge-wrong" class="btn btn-answer answer-no"><span>❌ 猜錯了</span></button>
+                    </div>
+                    <div id="judge-progress" class="control-hint"></div>
+                </div>
+
+                <div id="panel-spectating" class="control-sub-panel">
+                    <div class="control-hint">等待中...</div>
+                </div>
+
+                <!-- Custom celebrity proposal for the current asker -->
+                <div id="proposal-box" class="proposal-box">
+                    <div id="proposal-text" class="control-hint"></div>
+                    <div id="proposal-vote-row" class="quick-answer-row">
+                        <button id="btn-proposal-yes" class="btn btn-answer answer-yes"><span>👍 同意</span></button>
+                        <button id="btn-proposal-no" class="btn btn-answer answer-no"><span>👎 不同意</span></button>
+                    </div>
+                    <div id="proposal-form" class="answering-form">
+                        <input type="number" id="input-custom-celebrity" placeholder="想讓他猜哪個數字？" min="1" max="100" inputmode="numeric">
+                        <button id="btn-send-proposal" class="btn btn-gold"><span>送出提議</span></button>
+                    </div>
+                    <button id="btn-open-proposal" class="btn btn-brass btn-small"><span>✏️ 幫他自創題目</span></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME OVER / RANKING MODAL -->
+    <div id="game-over-modal" class="modal-overlay">
+        <div class="steampunk-modal">
+            <div class="modal-gears">🔢🏆🔢</div>
+            <h1 class="logo-text">🏆 最終排名 🏆</h1>
+            <p class="modal-desc">用最少問題猜中自己的人獲勝！</p>
+            <ul id="final-scores-list" class="scores-list"></ul>
+            <div class="modal-actions">
+                <button id="btn-restart" class="btn btn-gold" style="display: none;">
+                    <span>🔁 再玩一局（回大廳）</span>
+                </button>
+                <button id="btn-exit-lobby" class="btn btn-brass">
+                    <span>回到桌遊入口</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="error-toast" class="error-toast">錯誤提示資訊</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/shared/session.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
