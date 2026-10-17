@@ -67,7 +67,8 @@
                     <h3>📋 遊戲規則</h3>
                     <ul>
                         <li>每個人隨機抽一個 <strong>1–100 的數字</strong>（可能和別人重複）：你看得到別人的數字，<strong>看不到自己的</strong>。</li>
-                        <li>輪到你時，一直向大家<strong>發問</strong>（例如「我比 50 大嗎？」「我是偶數嗎？」），直到猜中或放棄才換下一位。</li>
+                        <li>輪到你時，一直向大家<strong>發問</strong>（例如「我是偶數嗎？」「我是 3 的倍數嗎？」「我的數字裡有 7 嗎？」），直到猜中或放棄才換下一位。</li>
+                        <li><strong>不能問大小或範圍</strong>（例如「我比 50 大嗎？」「我在 20 到 40 之間嗎？」），不然就變成終極密碼了！回答的人也不能透露大小。</li>
                         <li>其他人用「是／不是／不確定」回答，可以打字補充，<strong>不可以說謊</strong>！</li>
                         <li>隨時可以<strong>猜答案</strong>，<strong>系統自動判定</strong>對錯。猜測不算題數，但累計猜測次數最多只能是<strong>已問題數＋1</strong>。</li>
                         <li>最後比較題數，<strong>用最少問題猜中</strong>的人獲勝；放棄的人排在最後。</li>
@@ -134,7 +135,7 @@
                 <div id="panel-ask" class="control-sub-panel">
                     <div id="ask-hint" class="control-hint">輪到你了！問大家一個問題來縮小範圍吧。</div>
                     <div class="answering-form">
-                        <input type="text" id="input-question" placeholder="例如：我比 50 大嗎？" maxlength="80">
+                        <input type="text" id="input-question" placeholder="例如：我是 3 的倍數嗎？（不能問大小）" maxlength="80">
                         <button id="btn-ask" class="btn btn-gold"><span>❓ 發問</span></button>
                     </div>
                     <div class="answering-form">
@@ -154,7 +155,7 @@
                         <br><small>（他的數字是：<strong id="answer-celebrity"></strong>，請誠實回答）</small>
                     </div>
                     <div class="answering-form">
-                        <input type="text" id="input-note" placeholder="直接打答案，例如：比 50 大，但比 70 小" maxlength="60">
+                        <input type="text" id="input-note" placeholder="直接打答案，例如：是奇數，但不是質數" maxlength="60">
                         <button id="btn-answer-text" class="btn btn-gold"><span>💬 送出</span></button>
                     </div>
                     <div class="answer-or-hint">或按下方按鈕快速回答（上面有打字的話會一起當補充說明）</div>
