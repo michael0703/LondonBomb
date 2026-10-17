@@ -201,6 +201,10 @@ function getSanitizedRoomState(room, socketId) {
     return getWerewolfRoomState(room, socketId);
   }
 
+  if (room.gameType === 'avalon') {
+    return getAvalonRoomState(room, socketId);
+  }
+
   if (room.gameType === 'decrypto') {
     return getDecryptoRoomState(room, socketId);
   }
@@ -413,6 +417,9 @@ function handlePlayerDeparture(room, player, permanent) {
   }
   if (room.gameType === 'werewolf' && permanent) {
     handleWerewolfDeparture(room, player);
+  }
+  if (room.gameType === 'avalon' && permanent) {
+    handleAvalonDeparture(room, player);
   }
   if (room.gameType === 'decrypto' && permanent) {
     handleDecryptoDeparture(room, player);
@@ -644,6 +651,7 @@ io.on('connection', (socket) => {
     const maxPlayers = room.gameType === 'undercover' ? UNDERCOVER_MAX_PLAYERS
       : room.gameType === 'mascarade' ? MASCARADE_MAX_PLAYERS
       : room.gameType === 'werewolf' ? WEREWOLF_MAX_PLAYERS
+      : room.gameType === 'avalon' ? AVALON_MAX_PLAYERS
       : room.gameType === 'decrypto' ? DECRYPTO_MAX_PLAYERS : 8;
     if (room.players.length >= maxPlayers) {
       socket.emit('errorMsg', `房間人數已滿（最多${maxPlayers}人）。`);
@@ -697,6 +705,10 @@ io.on('connection', (socket) => {
     }
     if (room.gameType === 'werewolf') {
       socket.emit('errorMsg', '一夜終極狼人需要真人一起玩，無法加入 AI 機器人。');
+      return;
+    }
+    if (room.gameType === 'avalon') {
+      socket.emit('errorMsg', '阿瓦隆需要真人一起玩，無法加入 AI 機器人。');
       return;
     }
     if (room.gameType === 'decrypto') {
@@ -845,6 +857,17 @@ io.on('connection', (socket) => {
         return;
       }
       startWerewolfGame(room);
+      return;
+    }
+
+    if (room.gameType === 'avalon') {
+      const setupError = avalonSetupError(getAvalonSetup(room));
+      if (setupError) {
+        socket.emit('errorMsg', setupError);
+        return;
+      }
+      startAvalonGame(room);
+      broadcastRoomUpdate(room);
       return;
     }
 
@@ -1237,6 +1260,9 @@ io.on('connection', (socket) => {
     }
     if (room.gameType === 'werewolf') {
       resetWerewolfRoom(room);
+    }
+    if (room.gameType === 'avalon') {
+      resetAvalonRoom(room);
     }
     if (room.gameType === 'decrypto') {
       resetDecryptoRoom(room);
@@ -4855,6 +4881,466 @@ io.on('connection', (socket) => {
     if (room.dcClues[team] || dcActiveMembers(room, team).length < 2) return;
     room.dcEncryptors[team] = pickDecryptoEncryptor(room, team);
     addLog(room, 'system', `🔁 房主讓 ${(dcPlayer(room, room.dcEncryptors[team]) || {}).name} 改當${DECRYPTO_TEAM_NAMES[team]}的加密者。`);
+    broadcastRoomUpdate(room);
+  });
+});
+
+// ================= AVALON (阿瓦隆) =================
+// Good vs evil. Each round a leader proposes a quest team, everyone votes on it
+// at the same time, and an approved team secretly plays success/fail cards.
+// Three failed quests (or five rejected proposals in a row) and evil wins.
+// Three successful quests and the assassin gets one guess at Merlin: right and
+// evil wins after all. The table talks face to face; phones hold the secret
+// roles, the votes and the quest cards.
+
+const AVALON_MIN_PLAYERS = 5;
+const AVALON_MAX_PLAYERS = 10;
+const AVALON_TEAM_SIZES = { 5: [3, 2], 6: [4, 2], 7: [4, 3], 8: [5, 3], 9: [6, 3], 10: [6, 4] }; // [good, evil]
+const AVALON_QUEST_SIZES = {
+  5: [2, 3, 2, 3, 3],
+  6: [2, 3, 4, 3, 4],
+  7: [2, 3, 3, 4, 4],
+  8: [3, 4, 4, 5, 5],
+  9: [3, 4, 4, 5, 5],
+  10: [3, 4, 4, 5, 5]
+};
+const AVALON_MAX_REJECTS = 5;
+
+const AVALON_ROLES = {
+  merlin: { name: '梅林', icon: '🧙‍♂️', team: 'good', desc: '知道所有壞人是誰（莫德雷德除外）。要暗中帶領好人，又不能被刺客認出來。' },
+  percival: { name: '派西維爾', icon: '🛡️', team: 'good', desc: '看得到梅林和魔甘娜，但分不出誰是誰。要保護真正的梅林。' },
+  servant: { name: '亞瑟的忠臣', icon: '🙂', team: 'good', desc: '沒有特殊資訊，靠推理找出壞人。' },
+  assassin: { name: '刺客', icon: '🗡️', team: 'evil', desc: '壞人。好人完成 3 個任務後，由你指定一個人；猜中梅林，壞人逆轉獲勝。' },
+  morgana: { name: '魔甘娜', icon: '🔮', team: 'evil', desc: '壞人。在派西維爾眼中看起來像梅林。' },
+  mordred: { name: '莫德雷德', icon: '👿', team: 'evil', desc: '壞人。梅林看不到你。' },
+  oberon: { name: '奧伯倫', icon: '👻', team: 'evil', desc: '壞人，但你不知道其他壞人，其他壞人也不知道你。' },
+  minion: { name: '莫德雷德的爪牙', icon: '😈', team: 'evil', desc: '壞人。知道其他壞人是誰（奧伯倫除外）。' }
+};
+const AVALON_EXTRA_ROLES = ['percival', 'morgana', 'mordred', 'oberon'];
+const AVALON_TEAM_NAMES = { good: '好人陣營', evil: '壞人陣營' };
+
+const avPlayer = (room, id) => room.players.find(p => p.id === id);
+const avActive = (room) => room.players.filter(p => !p.avLeft);
+const avRoleName = (role) => (AVALON_ROLES[role] ? `${AVALON_ROLES[role].icon}${AVALON_ROLES[role].name}` : '?');
+const avIsEvil = (p) => !!p.avRole && AVALON_ROLES[p.avRole].team === 'evil';
+
+function getAvalonSetup(room) {
+  const total = room.players.length;
+  const settings = room.avSettings || {};
+  const extras = (settings.extras || []).filter(r => AVALON_EXTRA_ROLES.includes(r));
+  return { total, extras, lady: !!settings.lady, teams: AVALON_TEAM_SIZES[total] || null, questSizes: AVALON_QUEST_SIZES[total] || null };
+}
+
+function avalonSetupError(setup) {
+  if (setup.total < AVALON_MIN_PLAYERS || setup.total > AVALON_MAX_PLAYERS) {
+    return `阿瓦隆需要 ${AVALON_MIN_PLAYERS} 到 ${AVALON_MAX_PLAYERS} 名玩家才能開始。`;
+  }
+  const evilSpecials = 1 + setup.extras.filter(r => AVALON_ROLES[r].team === 'evil').length;
+  if (evilSpecials > setup.teams[1]) {
+    return `${setup.total} 人只有 ${setup.teams[1]} 個壞人，放不下刺客加上 ${evilSpecials - 1} 個進階壞人角色。`;
+  }
+  return null;
+}
+
+// Two fails are needed on quest 4 with 7 or more players
+const avFailsNeeded = (room, questIdx) => (questIdx === 3 && room.players.length >= 7 ? 2 : 1);
+
+function resetAvalonRoom(room) {
+  room.avQuest = 0;
+  room.avResults = [];
+  room.avRejects = 0;
+  room.avLeaderId = null;
+  room.avTeam = [];
+  room.avVotes = {};
+  room.avQuestCards = {};
+  room.avHistory = [];
+  room.avLastQuest = null;
+  room.avLadyHolderId = null;
+  room.avLadyUsedIds = [];
+  room.avWinner = null;
+  room.avReason = '';
+  room.avAssassinTarget = null;
+  room.players.forEach(p => {
+    p.avRole = null;
+    p.avLeft = false;
+    p.avLadyInfo = [];
+  });
+}
+
+function startAvalonGame(room) {
+  const setup = getAvalonSetup(room);
+  room.gameStarted = true;
+  room.gameEnded = false;
+  room.winnerTeam = null;
+  room.history = [];
+  resetAvalonRoom(room);
+
+  const [goodCount, evilCount] = setup.teams;
+  const good = ['merlin', ...setup.extras.filter(r => AVALON_ROLES[r].team === 'good')];
+  const evil = ['assassin', ...setup.extras.filter(r => AVALON_ROLES[r].team === 'evil')];
+  while (good.length < goodCount) good.push('servant');
+  while (evil.length < evilCount) evil.push('minion');
+  const roles = shuffle([...good, ...evil]);
+  room.players.forEach((p, i) => { p.avRole = roles[i]; });
+  room.avRolesInGame = [...new Set([...good, ...evil])];
+  room.avLady = setup.lady;
+
+  const first = Math.floor(Math.random() * room.players.length);
+  room.avLeaderId = room.players[first].id;
+  // The Lady of the Lake starts with the player to the leader's right
+  if (setup.lady) room.avLadyHolderId = room.players[(first - 1 + room.players.length) % room.players.length].id;
+  room.roundPhase = 'proposal';
+  addLog(room, 'system', `🏰 阿瓦隆開始！好人 ${goodCount} 人、壞人 ${evilCount} 人。先點身分卡確認自己的角色和情報。`);
+  addLog(room, 'system', `👑 第一位隊長是 ${room.players[first].name}，請提名第 1 個任務的 ${setup.questSizes[0]} 位隊員。`);
+}
+
+function avNextLeader(room) {
+  const seats = room.players;
+  const idx = seats.findIndex(p => p.id === room.avLeaderId);
+  for (let step = 1; step <= seats.length; step++) {
+    const next = seats[(idx + step) % seats.length];
+    if (!next.avLeft) {
+      room.avLeaderId = next.id;
+      return;
+    }
+  }
+}
+
+function avEndGame(room, winner, reason) {
+  room.avWinner = winner;
+  room.avReason = reason;
+  room.winnerTeam = winner;
+  room.roundPhase = 'game_over';
+  room.gameEnded = true;
+  addLog(room, 'system', `🏁 ${AVALON_TEAM_NAMES[winner]}獲勝！${reason}`);
+}
+
+function avStartProposal(room) {
+  room.avTeam = [];
+  room.avVotes = {};
+  room.avQuestCards = {};
+  room.roundPhase = 'proposal';
+  const leader = avPlayer(room, room.avLeaderId);
+  const size = AVALON_QUEST_SIZES[room.players.length][room.avQuest];
+  addLog(room, 'system', `👑 隊長是 ${leader ? leader.name : '?'}，請提名第 ${room.avQuest + 1} 個任務的 ${size} 位隊員。`);
+}
+
+function avVoters(room) {
+  return avActive(room);
+}
+
+function maybeResolveAvalonVote(room, force = false) {
+  if (room.roundPhase !== 'vote') return;
+  const voters = avVoters(room);
+  const cast = voters.filter(p => room.avVotes[p.id] !== undefined);
+  if (!force && cast.length < voters.length) return;
+  const approve = cast.filter(p => room.avVotes[p.id]).length;
+  const approved = approve > cast.length / 2;
+  const entry = room.avHistory[room.avHistory.length - 1];
+  entry.votes = Object.fromEntries(cast.map(p => [p.id, room.avVotes[p.id]]));
+  entry.approved = approved;
+  const tally = `（同意 ${approve}／反對 ${cast.length - approve}）`;
+  if (approved) {
+    room.avRejects = 0;
+    room.avQuestCards = {};
+    room.roundPhase = 'quest';
+    addLog(room, 'vote', `✅ 隊伍通過${tally}！${room.avTeam.map(id => avPlayer(room, id).name).join('、')} 出任務。`);
+    return;
+  }
+  room.avRejects += 1;
+  addLog(room, 'vote', `❌ 隊伍被否決${tally}，連續否決 ${room.avRejects}/${AVALON_MAX_REJECTS} 次。`);
+  if (room.avRejects >= AVALON_MAX_REJECTS) {
+    avEndGame(room, 'evil', `連續 ${AVALON_MAX_REJECTS} 次提名都被否決。`);
+    return;
+  }
+  avNextLeader(room);
+  avStartProposal(room);
+}
+
+// force: the host stops waiting; missing cards count as success
+function maybeResolveAvalonQuest(room, force = false) {
+  if (room.roundPhase !== 'quest') return;
+  const members = room.avTeam.map(id => avPlayer(room, id)).filter(p => p && !p.avLeft);
+  const waiting = members.filter(p => !room.avQuestCards[p.id]);
+  if (!force && waiting.length) return;
+  const fails = members.filter(p => room.avQuestCards[p.id] === 'fail').length;
+  const needed = avFailsNeeded(room, room.avQuest);
+  const success = fails < needed;
+  room.avResults.push(success ? 'success' : 'fail');
+  room.avLastQuest = { quest: room.avQuest, fails, success, needed, size: room.avTeam.length };
+  room.avHistory[room.avHistory.length - 1].result = { fails, success };
+  room.roundPhase = 'quest_result';
+  addLog(room, 'quest', success
+    ? `🏆 第 ${room.avQuest + 1} 個任務成功！（${fails} 張失敗）`
+    : `💥 第 ${room.avQuest + 1} 個任務失敗！（${fails} 張失敗）`);
+}
+
+function avalonAfterQuest(room) {
+  const wins = room.avResults.filter(r => r === 'success').length;
+  const losses = room.avResults.filter(r => r === 'fail').length;
+  if (losses >= 3) {
+    avEndGame(room, 'evil', '3 個任務失敗。');
+    return;
+  }
+  if (wins >= 3) {
+    room.roundPhase = 'assassin';
+    addLog(room, 'system', '🗡️ 好人完成了 3 個任務！壞人可以討論，最後由刺客在手機上指定誰是梅林。');
+    return;
+  }
+  room.avQuest += 1;
+  avNextLeader(room);
+  // The Lady of the Lake is used after quests 2, 3 and 4
+  if (room.avLady && room.avQuest >= 2 && room.avQuest <= 4 && avPlayer(room, room.avLadyHolderId)) {
+    room.roundPhase = 'lady';
+    addLog(room, 'system', `🌊 ${avPlayer(room, room.avLadyHolderId).name} 拿著湖中女神，選一位玩家查驗陣營。`);
+    return;
+  }
+  avStartProposal(room);
+}
+
+// Whoever may pick Merlin: the assassin, or another evil player if the assassin left
+function avAssassin(room) {
+  return room.players.find(p => p.avRole === 'assassin' && !p.avLeft)
+    || room.players.find(p => avIsEvil(p) && !p.avLeft);
+}
+
+// What a player learned at night, from their role
+function avNightInfo(room, me) {
+  if (!me || !me.avRole) return [];
+  const names = (list) => list.map(p => p.name).join('、');
+  const others = room.players.filter(p => p.id !== me.id);
+  switch (me.avRole) {
+    case 'merlin': {
+      const seen = others.filter(p => avIsEvil(p) && p.avRole !== 'mordred');
+      const info = [`壞人是：${names(seen) || '（看不到任何人）'}`];
+      if (room.avRolesInGame.includes('mordred')) info.push('莫德雷德也是壞人，但你看不到他。');
+      return info;
+    }
+    case 'percival': {
+      const seen = others.filter(p => p.avRole === 'merlin' || p.avRole === 'morgana');
+      return [seen.length > 1 ? `梅林是 ${names(seen)} 其中一位（另一位是魔甘娜）。` : `梅林是：${names(seen)}`];
+    }
+    case 'oberon':
+      return ['你不知道其他壞人是誰，他們也不知道你。'];
+    case 'servant':
+      return ['你沒有額外情報，靠推理找出壞人。'];
+    default: {
+      const mates = others.filter(p => avIsEvil(p) && p.avRole !== 'oberon');
+      const info = [`你的壞人同伴：${names(mates) || '（沒有）'}`];
+      if (room.avRolesInGame.includes('oberon')) info.push('奧伯倫也是壞人，但你們互相不知道。');
+      return info;
+    }
+  }
+}
+
+function getAvalonRoomState(room, socketId) {
+  const me = avPlayer(room, socketId);
+  const setup = getAvalonSetup(room);
+  const reveal = room.gameEnded;
+  const phase = room.roundPhase;
+  const players = room.players.map(p => ({
+    id: p.id,
+    name: p.name,
+    host: p.host,
+    connected: p.connected,
+    isBot: false,
+    left: !!p.avLeft,
+    voted: phase === 'vote' && room.avVotes[p.id] !== undefined,
+    questDone: phase === 'quest' && !!room.avQuestCards[p.id],
+    role: reveal ? p.avRole : null
+  }));
+  const assassin = room.gameStarted ? avAssassin(room) : null;
+  return {
+    roomCode: room.roomCode,
+    gameType: room.gameType,
+    gameStarted: room.gameStarted,
+    gameEnded: room.gameEnded,
+    roundPhase: phase,
+    setup: { ...setup, error: avalonSetupError(setup) },
+    roleInfo: AVALON_ROLES,
+    extraRoles: AVALON_EXTRA_ROLES,
+    teamSizes: AVALON_TEAM_SIZES,
+    questSizeTable: AVALON_QUEST_SIZES,
+    rolesInGame: room.gameStarted ? room.avRolesInGame : [],
+    lady: room.gameStarted ? !!room.avLady : setup.lady,
+    questSizes: AVALON_QUEST_SIZES[room.players.length] || null,
+    failsNeeded: [0, 1, 2, 3, 4].map(i => avFailsNeeded(room, i)),
+    quest: room.avQuest || 0,
+    results: room.avResults || [],
+    rejects: room.avRejects || 0,
+    maxRejects: AVALON_MAX_REJECTS,
+    leaderId: room.avLeaderId || null,
+    team: room.avTeam || [],
+    lastQuest: room.avLastQuest || null,
+    rounds: room.avHistory || [],
+    ladyHolderId: room.avLadyHolderId || null,
+    ladyUsedIds: room.avLadyUsedIds || [],
+    assassinId: phase === 'assassin' && assassin ? assassin.id : null,
+    winner: room.avWinner || null,
+    reason: room.avReason || '',
+    assassinTarget: room.avAssassinTarget || null,
+    my: me && me.avRole ? {
+      role: me.avRole,
+      team: AVALON_ROLES[me.avRole].team,
+      nightInfo: avNightInfo(room, me),
+      ladyInfo: me.avLadyInfo || [],
+      vote: phase === 'vote' ? (room.avVotes[me.id] === undefined ? null : room.avVotes[me.id]) : null,
+      questCard: phase === 'quest' ? room.avQuestCards[me.id] || null : null
+    } : null,
+    players,
+    history: room.history,
+    me: players.find(p => p.id === socketId) || null
+  };
+}
+
+function handleAvalonDeparture(room, player) {
+  if (!room.gameStarted || room.gameEnded || player.avLeft) return;
+  player.avLeft = true;
+  if (avActive(room).length < 2) {
+    avEndGame(room, avIsEvil(avActive(room)[0] || player) ? 'evil' : 'good', '其他人都離開了。');
+    return;
+  }
+  if (room.roundPhase === 'proposal' && room.avLeaderId === player.id) {
+    avNextLeader(room);
+    avStartProposal(room);
+  } else if (room.roundPhase === 'vote') {
+    maybeResolveAvalonVote(room);
+  } else if (room.roundPhase === 'quest') {
+    maybeResolveAvalonQuest(room);
+  } else if (room.roundPhase === 'lady' && room.avLadyHolderId === player.id) {
+    avStartProposal(room);
+  }
+}
+
+function getAvalonContext(socket, phase) {
+  const room = getRoomBySocket(socket);
+  if (!room || room.gameType !== 'avalon' || !room.gameStarted || room.gameEnded) return null;
+  if (phase && room.roundPhase !== phase) return null;
+  const player = avPlayer(room, socket.id);
+  if (!player || player.avLeft) return null;
+  return { room, player };
+}
+
+io.on('connection', (socket) => {
+  // Event: Host picks the advanced roles / Lady of the Lake in the lobby
+  socket.on('avalon_settings', ({ extras, lady } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'avalon' || room.gameStarted) return;
+    const player = avPlayer(room, socket.id);
+    if (!player || !player.host) return;
+    if (!room.avSettings) room.avSettings = { extras: [], lady: false };
+    if (Array.isArray(extras)) room.avSettings.extras = [...new Set(extras.filter(r => AVALON_EXTRA_ROLES.includes(r)))];
+    if (typeof lady === 'boolean') room.avSettings.lady = lady;
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Leader proposes the quest team
+  socket.on('avalon_propose', ({ team } = {}) => {
+    const ctx = getAvalonContext(socket, 'proposal');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (room.avLeaderId !== player.id) return;
+    const size = AVALON_QUEST_SIZES[room.players.length][room.avQuest];
+    const ids = Array.isArray(team) ? [...new Set(team)] : [];
+    if (ids.length !== size || !ids.every(id => { const p = avPlayer(room, id); return p && !p.avLeft; })) {
+      socket.emit('errorMsg', `請選剛好 ${size} 位隊員。`);
+      return;
+    }
+    room.avTeam = ids;
+    room.avVotes = {};
+    room.avHistory.push({ quest: room.avQuest, leaderId: player.id, team: ids, votes: null, approved: null, result: null });
+    room.roundPhase = 'vote';
+    addLog(room, 'vote', `👑 ${player.name} 提名 ${ids.map(id => avPlayer(room, id).name).join('、')}，大家投票！`);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Vote on the proposed team (can be changed until everyone has voted)
+  socket.on('avalon_vote', ({ approve } = {}) => {
+    const ctx = getAvalonContext(socket, 'vote');
+    if (!ctx || typeof approve !== 'boolean') return;
+    ctx.room.avVotes[ctx.player.id] = approve;
+    maybeResolveAvalonVote(ctx.room);
+    broadcastRoomUpdate(ctx.room);
+  });
+
+  // Event: Team member plays a quest card (good players can only succeed)
+  socket.on('avalon_quest', ({ card } = {}) => {
+    const ctx = getAvalonContext(socket, 'quest');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (!room.avTeam.includes(player.id) || room.avQuestCards[player.id]) return;
+    if (card !== 'success' && card !== 'fail') return;
+    if (card === 'fail' && !avIsEvil(player)) {
+      socket.emit('errorMsg', '好人只能出成功。');
+      return;
+    }
+    room.avQuestCards[player.id] = card;
+    maybeResolveAvalonQuest(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Move on after the quest result (anyone can press it)
+  socket.on('avalon_continue', () => {
+    const ctx = getAvalonContext(socket, 'quest_result');
+    if (!ctx) return;
+    avalonAfterQuest(ctx.room);
+    broadcastRoomUpdate(ctx.room);
+  });
+
+  // Event: Lady of the Lake holder checks someone's loyalty
+  socket.on('avalon_lady', ({ targetId } = {}) => {
+    const ctx = getAvalonContext(socket, 'lady');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (room.avLadyHolderId !== player.id) return;
+    const target = avPlayer(room, targetId);
+    if (!target || target.avLeft || target.id === player.id || room.avLadyUsedIds.includes(target.id)) {
+      socket.emit('errorMsg', '請選一位還沒拿過湖中女神的其他玩家。');
+      return;
+    }
+    player.avLadyInfo.push(`🌊 你查驗了 ${target.name}：${AVALON_TEAM_NAMES[AVALON_ROLES[target.avRole].team]}`);
+    room.avLadyUsedIds.push(player.id);
+    room.avLadyHolderId = target.id;
+    addLog(room, 'system', `🌊 ${player.name} 用湖中女神查驗了 ${target.name}，湖中女神交給 ${target.name}。`);
+    avStartProposal(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Assassin names Merlin
+  socket.on('avalon_assassinate', ({ targetId } = {}) => {
+    const ctx = getAvalonContext(socket, 'assassin');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    const assassin = avAssassin(room);
+    if (!assassin || assassin.id !== player.id) return;
+    const target = avPlayer(room, targetId);
+    if (!target || target.id === player.id) return;
+    room.avAssassinTarget = target.id;
+    if (target.avRole === 'merlin') avEndGame(room, 'evil', `刺客 ${player.name} 刺中了梅林 ${target.name}！`);
+    else avEndGame(room, 'good', `刺客 ${player.name} 刺殺了 ${target.name}，但他不是梅林。`);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host stops waiting (missing votes are ignored, missing quest cards count as success)
+  socket.on('avalon_force', () => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'avalon' || !room.gameStarted || room.gameEnded) return;
+    const player = avPlayer(room, socket.id);
+    if (!player || !player.host) return;
+    if (room.roundPhase === 'vote') {
+      addLog(room, 'system', '⏭️ 房主不等了，沒投票的人不計。');
+      maybeResolveAvalonVote(room, true);
+    } else if (room.roundPhase === 'quest') {
+      addLog(room, 'system', '⏭️ 房主不等了，沒出牌的隊員算成功。');
+      maybeResolveAvalonQuest(room, true);
+    } else if (room.roundPhase === 'proposal') {
+      addLog(room, 'system', '⏭️ 房主跳過了這位隊長。');
+      avNextLeader(room);
+      avStartProposal(room);
+    } else if (room.roundPhase === 'lady') {
+      addLog(room, 'system', '⏭️ 房主跳過了湖中女神。');
+      avStartProposal(room);
+    } else return;
     broadcastRoomUpdate(room);
   });
 });

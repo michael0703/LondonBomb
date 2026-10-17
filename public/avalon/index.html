@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>阿瓦隆 | 桌遊入口</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- NICKNAME & LOBBY LOGIN VIEW -->
+        <div id="login-view" class="view-panel active">
+            <div class="steampunk-border"></div>
+
+            <h1 class="logo-text">🏰 阿瓦隆 🏰</h1>
+            <p class="logo-subtext">亞瑟的忠臣之中，藏著莫德雷德的爪牙</p>
+
+            <div class="input-group">
+                <label for="input-nickname">輸入你的暱稱</label>
+                <input type="text" id="input-nickname" placeholder="例如：蘭斯洛特..." maxlength="10">
+            </div>
+
+            <div class="input-group">
+                <label for="input-room-code">房號 (加入已有房間)</label>
+                <input type="text" id="input-room-code" placeholder="例如：ABCD..." maxlength="4" style="text-transform: uppercase;">
+            </div>
+
+            <div class="button-row">
+                <button id="btn-create-room" class="btn btn-gold">
+                    <span>創建新房間</span>
+                </button>
+                <button id="btn-join-room" class="btn btn-brass">
+                    <span>加入已有房間</span>
+                </button>
+            </div>
+
+            <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="margin: 15px auto 0; width: 100%; max-width: 320px;">
+                <span>⬅️ 返回桌遊入口</span>
+            </button>
+        </div>
+
+        <!-- WAITING LOBBY VIEW -->
+        <div id="waiting-view" class="view-panel">
+            <div class="steampunk-border"></div>
+            <div class="lobby-header">
+                <div class="room-indicator">
+                    <span class="label">當前房號</span>
+                    <span id="display-room-code" class="value">----</span>
+                </div>
+                <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">
+                    <span>🚪 離開大廳</span>
+                </button>
+            </div>
+
+            <h2 class="lobby-title">🏰 圓桌大廳 🏰</h2>
+
+            <div class="lobby-section ww-roles-section">
+                <div class="ww-roles-head">
+                    <h3>🃏 角色設定</h3>
+                </div>
+                <p id="role-note" class="setting-note"></p>
+                <div id="role-tiles" class="role-strip"></div>
+                <label class="keep-log-row">
+                    <input type="checkbox" id="toggle-lady">
+                    <span>🌊 使用湖中女神（建議 8 人以上）：第 2、3、4 個任務後，持有者可以查驗一位玩家的陣營</span>
+                </label>
+            </div>
+
+            <div class="lobby-columns">
+                <div class="lobby-section players-section">
+                    <h3>👥 在線玩家 (<span id="player-count">0</span>/10)</h3>
+                    <ul id="lobby-players-list"></ul>
+                </div>
+
+                <div class="lobby-section rules-section">
+                    <h3>📊 這個人數的配置</h3>
+                    <div id="count-table" class="av-count-table"></div>
+
+                    <button class="btn btn-brass btn-help" type="button" data-open-help>
+                        <span>📖 遊戲說明（規則・角色）</span>
+                    </button>
+                    <div class="host-controls">
+                        <p id="lobby-status-msg" class="status-msg">等待其他玩家加入...</p>
+                        <button id="btn-start-game" class="btn btn-gold btn-large disabled" disabled>
+                            <span>開始遊戲</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GAME PLAY VIEW -->
+        <div id="game-view" class="view-panel">
+            <button id="role-card" class="my-card role-card" type="button">
+                <span class="my-card-label">你的身分（點一下顯示／隱藏）</span>
+                <strong id="role-card-value" class="my-card-value">👀 點我看身分</strong>
+                <span id="role-card-desc" class="my-card-desc"></span>
+                <ul id="role-card-info" class="av-info-list"></ul>
+            </button>
+
+            <div class="av-tracks">
+                <div id="quest-track" class="quest-track"></div>
+                <div id="reject-track" class="reject-track"></div>
+            </div>
+
+            <div id="ticker-banner">
+                <span id="ticker-text">遊戲準備中...</span>
+            </div>
+
+            <div class="bottom-controls">
+                <div id="control-panel" class="ms-panel"></div>
+            </div>
+
+            <div class="uc-section">
+                <h3>👥 玩家（👑 隊長｜⚔️ 隊員｜🌊 湖中女神）</h3>
+                <ul id="players-list" class="ms-players"></ul>
+            </div>
+
+            <div class="uc-section">
+                <h3>📜 提名與任務紀錄</h3>
+                <ul id="round-log" class="effect-list"></ul>
+            </div>
+
+            <div class="uc-section">
+                <h3>🃏 這局的角色</h3>
+                <div id="roles-in-game" class="role-strip"></div>
+                <button class="btn btn-brass btn-help" type="button" data-open-help>
+                    <span>📖 遊戲說明（規則・角色）</span>
+                </button>
+                <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass btn-small" style="margin-top: 6px;">
+                    <span>🚪 離開遊戲</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME OVER MODAL -->
+    <div id="game-over-modal" class="modal-overlay">
+        <div class="steampunk-modal ww-modal">
+            <div class="modal-gears">🏰🏁🏰</div>
+            <h1 id="winner-title" class="logo-text">遊戲結束</h1>
+            <p id="winner-reason" class="modal-desc"></p>
+            <div id="winner-names" class="winner-names"></div>
+            <ul id="final-list" class="scores-list"></ul>
+            <div class="modal-actions">
+                <button id="btn-restart" class="btn btn-gold" style="display: none;">
+                    <span>🔁 再玩一局（回大廳）</span>
+                </button>
+                <button id="btn-close-modal" class="btn btn-brass">
+                    <span>看紀錄</span>
+                </button>
+                <button id="btn-exit-lobby" class="btn btn-brass">
+                    <span>回到桌遊入口</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HELP MODAL -->
+    <div id="help-modal" class="modal-overlay">
+        <div class="steampunk-modal ww-modal help-modal">
+            <h2 class="help-title">📖 遊戲說明</h2>
+            <p class="help-note">點標題展開或收合。</p>
+
+            <details class="help-section" open>
+                <summary>📋 遊戲流程</summary>
+                <ul class="help-list">
+                    <li>大家分成<strong>好人</strong>和<strong>壞人</strong>，開局點身分卡看自己的角色和情報（壞人互相認識）。</li>
+                    <li>最多 <strong>5 個任務</strong>。每個任務由<strong>隊長</strong>提名指定人數的隊員（隊長可以選自己）。</li>
+                    <li>所有人<strong>同時投票</strong>同意或反對，過半數同意才出發（平手算否決）。否決的話隊長換下一位重新提名。<strong>連續 5 次否決，壞人直接獲勝。</strong></li>
+                    <li>隊員偷偷出「成功」或「失敗」：<strong>好人只能出成功</strong>，壞人可以選。只要有 1 張失敗任務就失敗（7 人以上的<strong>第 4 個任務要 2 張</strong>）。只會公布有幾張失敗，不公布是誰。</li>
+                    <li>討論都在現場當面進行，可以說謊。</li>
+                </ul>
+            </details>
+
+            <details class="help-section">
+                <summary>🏆 勝負判定</summary>
+                <ul class="help-list">
+                    <li><strong>3 個任務失敗</strong>，或<strong>連續 5 次否決</strong> ➔ 壞人獲勝。</li>
+                    <li><strong>3 個任務成功</strong> ➔ 刺殺階段：壞人可以當面討論，最後由<strong>刺客在手機上</strong>指定一個人。刺中梅林 ➔ 壞人逆轉獲勝；刺錯 ➔ 好人獲勝。</li>
+                    <li>所以梅林要幫好人，又不能太明顯被認出來。</li>
+                </ul>
+            </details>
+
+            <details class="help-section">
+                <summary>🧙‍♂️ 角色</summary>
+                <ul id="help-roles" class="help-list"></ul>
+            </details>
+
+            <details class="help-section">
+                <summary>🌊 湖中女神（選配）</summary>
+                <ul class="help-list">
+                    <li>一開始由第一位隊長右手邊的人拿著。</li>
+                    <li>第 2、3、4 個任務結束後，持有者選一位玩家，手機會私下告訴他對方是<strong>好人還是壞人</strong>（不會告訴角色）。</li>
+                    <li>接著湖中女神交給被查驗的人。拿過湖中女神的人不能再被查驗。查驗結果可以照實說，也可以說謊。</li>
+                </ul>
+            </details>
+
+            <details class="help-section">
+                <summary>📊 人數配置</summary>
+                <div id="help-table" class="av-count-table"></div>
+            </details>
+
+            <div class="modal-actions">
+                <button id="btn-close-help" class="btn btn-gold" type="button"><span>知道了</span></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="error-toast" class="error-toast">錯誤提示資訊</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/shared/session.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
