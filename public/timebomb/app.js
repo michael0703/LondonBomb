@@ -534,7 +534,7 @@ function renderWaitingRoom(state) {
 
     if (isHost) {
         buttons.startGame.style.display = 'block';
-        buttons.addBot.style.display = state.players.length < 8 ? 'block' : 'none';
+        buttons.addBot.style.display = state.players.length < 10 ? 'block' : 'none';
         if (state.players.length >= 4) {
             buttons.startGame.classList.remove('disabled');
             buttons.startGame.disabled = false;

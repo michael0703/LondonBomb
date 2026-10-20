@@ -20,7 +20,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const rooms = new Map();
 
 // Bot Names
-const BOT_NAMES = ['福爾摩斯機器人', '華生機器人', '雷斯特雷德機器人', '哈德森太太機器人', '麥考夫特機器人', '艾琳艾德勒機器人', '莫蘭上校機器人', '格雷格森機器人'];
+const BOT_NAMES = ['福爾摩斯機器人', '華生機器人', '雷斯特雷德機器人', '哈德森太太機器人', '麥考夫特機器人', '艾琳艾德勒機器人', '莫蘭上校機器人', '格雷格森機器人', '托比機器人', '威金斯機器人'];
 
 // Helper: Get random bot name not taken in room
 function getRandomBotName(room) {
@@ -69,6 +69,10 @@ function buildWireDeck(playerCount) {
   return shuffle(deck);
 }
 
+// 9 and 10 players are not in the official rules; they follow its pattern
+// (about 40% Moriarty, and with 9 one card of a 10-card set stays hidden)
+const TIMEBOMB_MAX_PLAYERS = 10;
+
 // Helper: Select role cards
 function selectRoles(playerCount) {
   let roles = [];
@@ -82,6 +86,8 @@ function selectRoles(playerCount) {
     roles = [true, true, true, true, true, false, false, false];
   } else if (playerCount === 8) {
     roles = [true, true, true, true, true, false, false, false];
+  } else if (playerCount === 9 || playerCount === 10) {
+    roles = [true, true, true, true, true, true, false, false, false, false];
   }
   shuffle(roles);
   return roles.slice(0, playerCount);
@@ -652,7 +658,9 @@ io.on('connection', (socket) => {
       : room.gameType === 'mascarade' ? MASCARADE_MAX_PLAYERS
       : room.gameType === 'werewolf' ? WEREWOLF_MAX_PLAYERS
       : room.gameType === 'avalon' ? AVALON_MAX_PLAYERS
-      : room.gameType === 'decrypto' ? DECRYPTO_MAX_PLAYERS : 8;
+      : room.gameType === 'decrypto' ? DECRYPTO_MAX_PLAYERS
+      : isWhoamiGame(room) ? WHOAMI_MAX_PLAYERS
+      : room.gameType === 'timebomb' ? TIMEBOMB_MAX_PLAYERS : 8;
     if (room.players.length >= maxPlayers) {
       socket.emit('errorMsg', `房間人數已滿（最多${maxPlayers}人）。`);
       return;
@@ -690,7 +698,8 @@ io.on('connection', (socket) => {
   // Event: Add AI Bot
   socket.on('addBot', () => {
     let room = getRoomBySocket(socket);
-    if (!room || room.gameStarted || room.players.length >= 8) return;
+    if (!room || room.gameStarted) return;
+    if (room.players.length >= (room.gameType === 'timebomb' ? TIMEBOMB_MAX_PLAYERS : 8)) return;
     if (isWhoamiGame(room)) {
       socket.emit('errorMsg', '名人猜猜我是誰需要真人回答，無法加入 AI 機器人。');
       return;
@@ -804,8 +813,8 @@ io.on('connection', (socket) => {
 
     const playerCount = room.players.length;
     if (room.gameType === 'timebomb') {
-      if (playerCount < 4 || playerCount > 8) {
-        socket.emit('errorMsg', '遊戲需要 4 到 8 名玩家/機器人才能開始。');
+      if (playerCount < 4 || playerCount > TIMEBOMB_MAX_PLAYERS) {
+        socket.emit('errorMsg', `遊戲需要 4 到 ${TIMEBOMB_MAX_PLAYERS} 名玩家/機器人才能開始。`);
         return;
       }
     } else if (room.gameType === 'skull') {
@@ -819,8 +828,8 @@ io.on('connection', (socket) => {
         return;
       }
     } else if (isWhoamiGame(room)) {
-      if (playerCount < 2 || playerCount > 8) {
-        socket.emit('errorMsg', '遊戲需要 2 到 8 名玩家才能開始。');
+      if (playerCount < 2 || playerCount > WHOAMI_MAX_PLAYERS) {
+        socket.emit('errorMsg', `遊戲需要 2 到 ${WHOAMI_MAX_PLAYERS} 名玩家才能開始。`);
         return;
       }
     }
@@ -2474,6 +2483,7 @@ function triggerTopTenBotsReady(room) {
 // 'pass' = chose not to answer; it still counts, so the asker can move on
 const WHOAMI_ANSWERS = ['yes', 'no', 'unsure', 'text', 'pass'];
 const WHOAMI_JUDGES_NEEDED = 2;
+const WHOAMI_MAX_PLAYERS = 10;
 
 // 數字猜猜我是誰 (whonum) runs on the same engine: the "celebrity" is a number
 // 1–100 (repeats allowed), guesses are checked by the server instead of judges,
