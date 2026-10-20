@@ -5381,6 +5381,44 @@ io.on('connection', (socket) => {
   });
 });
 
+// ================= ROOM CHAT (every game) =================
+// A small text chat per room, shown by public/shared/chat.js. The room keeps
+// the latest messages so people who join or reconnect can catch up.
+
+const CHAT_MAX_MESSAGES = 100;
+const CHAT_MAX_LENGTH = 200;
+const CHAT_MIN_INTERVAL_MS = 400;
+
+io.on('connection', (socket) => {
+  // Event: Ask for the room's recent messages (on joining / reconnecting)
+  socket.on('chat_history', () => {
+    const room = getRoomBySocket(socket);
+    if (!room) return;
+    socket.emit('chat_history', { roomCode: room.roomCode, messages: room.chat || [] });
+  });
+
+  // Event: Send a chat message to everyone in the room
+  socket.on('chat_send', ({ text } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+    const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_LENGTH);
+    if (!clean) return;
+    const now = Date.now();
+    if (socket.data.lastChatAt && now - socket.data.lastChatAt < CHAT_MIN_INTERVAL_MS) return;
+    socket.data.lastChatAt = now;
+
+    const message = { id: `${now}-${Math.random().toString(36).slice(2, 6)}`, playerId: player.id, name: player.name, text: clean, time: now };
+    if (!room.chat) room.chat = [];
+    room.chat.push(message);
+    if (room.chat.length > CHAT_MAX_MESSAGES) room.chat.splice(0, room.chat.length - CHAT_MAX_MESSAGES);
+    room.players.forEach(p => {
+      if (p.connected && !p.isBot) io.to(p.id).emit('chat_message', message);
+    });
+  });
+});
+
 // ================= BLOODY 99 (血腥99) =================
 // 99 with teams. The total starts at 99; play a card, change the total, draw
 // one card (A and 7 draw nothing). Whoever pushes the total over 99 dies, and

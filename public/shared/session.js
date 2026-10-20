@@ -23,7 +23,16 @@ window.BoardgameSession = (() => {
 
     function connect(gameType) {
         socket = io({ auth: { token, gameType } });
+        loadChat(socket);
         return socket;
+    }
+
+    // Every game gets the room chat window (public/shared/chat.js)
+    function loadChat(sock) {
+        const script = document.createElement('script');
+        script.src = '/shared/chat.js';
+        script.onload = () => { if (window.BoardgameChat) window.BoardgameChat.attach(sock); };
+        document.head.appendChild(script);
     }
 
     function inviteRoomCode() {
