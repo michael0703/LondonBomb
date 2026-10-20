@@ -115,7 +115,8 @@ function checkPlay(g, prev, st) {
 async function playGame(g) {
   const n = 4 + rnd(7);
   const decks = 1 + rnd(3);
-  const kingsPublic = Math.random() < 0.5;
+  const kingsReveal = pick(['both', 'black', 'none']);
+  const kingPublic = (p) => p.king && (kingsReveal === 'both' || (kingsReveal === 'black' && p.team === 'black'));
   const bots = [];
   for (let i = 0; i < n; i++) bots.push({ s: await connect(), name: 'B' + i, errs: [] });
   const host = bots[0];
@@ -131,6 +132,7 @@ async function playGame(g) {
       b.st = st;
       if (!st.gameStarted) return;
       if (i === 0) {
+        if (!b.firstState) b.firstState = st;
         if (prev && st.playCount > prev.playCount) {
           if (st.playCount !== prev.playCount + 1) fail(g, `missed a play (${prev.playCount} -> ${st.playCount})`);
           checkPlay(g, prev, st);
@@ -138,8 +140,9 @@ async function playGame(g) {
         // Identities stay hidden from the observer while the game runs
         if (!st.gameEnded) st.players.forEach(p => {
           if (p.id === b.s.id) return;
-          if (p.team && !(kingsPublic && p.king)) fail(g, `observer sees ${p.name}'s team`);
-          if (!kingsPublic && p.king !== null) fail(g, `observer sees ${p.name}'s king flag with hidden kings`);
+          // Only public kings show a king flag (always true) and their team; everyone else is unknown
+          if (p.king !== null && !(p.king === true && (kingsReveal === 'both' || (kingsReveal === 'black' && p.team === 'black')))) fail(g, `observer sees ${p.name}'s king flag (${kingsReveal})`);
+          if (p.team && p.king !== true) fail(g, `observer sees ${p.name}'s team`);
         });
         prev = st;
       }
@@ -157,7 +160,7 @@ async function playGame(g) {
   await wait(60);
   for (const b of bots.slice(1)) b.s.emit('joinRoom', { name: b.name, roomCode: host.st.roomCode, gameType: 'bloody99' });
   await wait(80 + n * 10);
-  host.s.emit('bloody99_settings', { decks, kingsPublic });
+  host.s.emit('bloody99_settings', { decks, kingsReveal });
   await wait(40);
   host.s.emit('startGame');
 
@@ -172,7 +175,12 @@ async function playGame(g) {
   const black = st.players.filter(p => p.team === 'black').length;
   if (black !== Math.ceil(n / 2) || st.players.filter(p => p.team === 'red').length !== Math.floor(n / 2)) fail(g, `teams ${black} black of ${n}`);
   ['red', 'black'].forEach(t => { const k = st.players.filter(p => p.team === t && p.king).length; if (k !== 1) fail(g, `${t} has ${k} kings`); });
-  if (st.decks !== decks || st.kingsPublic !== kingsPublic) fail(g, `settings not applied ${st.decks}/${st.kingsPublic}`);
+  if (st.decks !== decks || st.kingsReveal !== kingsReveal) fail(g, `settings not applied ${st.decks}/${st.kingsReveal}`);
+  // The number of public kings the observer saw at the start
+  const shownKings = (host.firstState || st).players.filter(p => p.king === true && p.id !== (host.firstState || st).me.id).length;
+  const wantKings = { both: 2, black: 1, none: 0 }[kingsReveal];
+  const hostIsHiddenKing = host.firstState && host.firstState.my.king && !kingPublic({ king: true, team: host.firstState.my.team });
+  if (host.firstState && shownKings !== wantKings - (host.firstState.my.king && !hostIsHiddenKing ? 1 : 0)) fail(g, `${kingsReveal}: observer saw ${shownKings} public kings`);
   if (st.cardStats.total !== decks * 52) fail(g, `card total ${st.cardStats.total} for ${decks} decks`);
   // Winner: the other team of the (only) dead king, or the last one standing
   const deadKings = st.players.filter(p => p.king && p.dead);

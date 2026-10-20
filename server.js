@@ -5424,7 +5424,8 @@ io.on('connection', (socket) => {
 // one card (A and 7 draw nothing). Whoever pushes the total over 99 dies, and
 // so does anyone whose hand ends up empty. Two hidden teams (red / black, black
 // gets the extra player) each have a king: the team whose king dies first loses.
-// Kings can be public or hidden (host setting); nobody else reveals a team.
+// The host picks which kings are public: both, only black's, or none;
+// nobody else ever reveals a team.
 //   A: take a random card from someone's hand    4: reverse    5: pick next player
 //   7: swap your whole hand with someone          10: ±10       Q: ±20
 //   J: pass                                        K: total becomes 99
@@ -5437,11 +5438,15 @@ const B99_LIMIT = 99;
 const B99_SUITS = ['♠', '♥', '♦', '♣'];
 const B99_RANK_NAMES = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
 const B99_TEAM_NAMES = { red: '🔴 紅隊', black: '⚫ 黑隊' };
+// Which kings everyone knows: both, only black's (black has the extra player
+// with an odd count, so revealing its king evens things out), or none
+const B99_KING_REVEALS = ['both', 'black', 'none'];
 
 const b9Player = (room, id) => room.players.find(p => p.id === id);
 const b9Alive = (room) => room.players.filter(p => !p.b9Dead && !p.b9Left);
 const b9CardName = (c) => `${c.suit}${B99_RANK_NAMES[c.rank] || c.rank}`;
 const b9DefaultDecks = (n) => (n <= 5 ? 1 : 2);
+const b9KingPublic = (room, p) => p.b9King && (room.b9KingsReveal === 'both' || (room.b9KingsReveal === 'black' && p.b9Team === 'black'));
 
 function getBloody99Setup(room) {
   const total = room.players.length;
@@ -5450,7 +5455,7 @@ function getBloody99Setup(room) {
     total,
     decks: settings.decks || b9DefaultDecks(total),
     autoDecks: !settings.decks,
-    kingsPublic: settings.kingsPublic !== false
+    kingsReveal: B99_KING_REVEALS.includes(settings.kingsReveal) ? settings.kingsReveal : 'both'
   };
 }
 
@@ -5490,7 +5495,7 @@ function startBloody99Game(room) {
   room.history = [];
   resetBloody99Room(room);
   room.b9Decks = setup.decks;
-  room.b9KingsPublic = setup.kingsPublic;
+  room.b9KingsReveal = setup.kingsReveal;
 
   let id = 0;
   const deck = [];
@@ -5514,9 +5519,10 @@ function startBloody99Game(room) {
   room.b9TurnId = first.id;
   room.roundPhase = 'play';
   addLog(room, 'system', `🩸 血腥99開始！點數從 ${B99_LIMIT} 起跳。紅隊 ${room.players.length - blackCount} 人、黑隊 ${blackCount} 人，各有一位王。`);
-  if (room.b9KingsPublic) {
-    const kings = room.players.filter(p => p.b9King).map(p => `${B99_TEAM_NAMES[p.b9Team]}的王是 ${p.name}`);
-    addLog(room, 'system', `👑 ${kings.join('，')}。`);
+  const publicKings = room.players.filter(p => b9KingPublic(room, p));
+  if (publicKings.length) {
+    const kings = publicKings.map(p => `${B99_TEAM_NAMES[p.b9Team]}的王是 ${p.name}`);
+    addLog(room, 'system', `👑 ${kings.join('，')}${room.b9KingsReveal === 'black' ? `；${B99_TEAM_NAMES.red}的王不公開` : ''}。`);
   }
   addLog(room, 'system', `👉 由 ${first.name} 先出牌。`);
 }
@@ -5656,7 +5662,7 @@ function getBloody99RoomState(room, socketId) {
   const setup = getBloody99Setup(room);
   const reveal = room.gameEnded;
   const players = room.players.map(p => {
-    const kingKnown = reveal || p.id === socketId || (room.b9KingsPublic && p.b9King);
+    const kingKnown = reveal || p.id === socketId || b9KingPublic(room, p);
     return {
       id: p.id,
       name: p.name,
@@ -5685,7 +5691,7 @@ function getBloody99RoomState(room, socketId) {
     deckCount: (room.b9Deck || []).length,
     cardStats: { total: room.b9CardTotal || 0, played: room.b9Discarded || 0, dumped: room.b9Dumped || 0 },
     decks: room.b9Decks || setup.decks,
-    kingsPublic: room.gameStarted ? !!room.b9KingsPublic : setup.kingsPublic,
+    kingsReveal: room.gameStarted ? room.b9KingsReveal : setup.kingsReveal,
     last: room.b9Last || null,
     playCount: (room.b9Plays || []).length,
     plays: (room.b9Plays || []).slice(-30),
@@ -5717,15 +5723,15 @@ function getBloody99Context(socket) {
 
 io.on('connection', (socket) => {
   // Event: Host changes the number of decks / whether the kings are public
-  socket.on('bloody99_settings', ({ decks, kingsPublic } = {}) => {
+  socket.on('bloody99_settings', ({ decks, kingsReveal } = {}) => {
     const room = getRoomBySocket(socket);
     if (!room || room.gameType !== 'bloody99' || room.gameStarted) return;
     const player = b9Player(room, socket.id);
     if (!player || !player.host) return;
-    if (!room.b9Settings) room.b9Settings = { decks: null, kingsPublic: true };
+    if (!room.b9Settings) room.b9Settings = { decks: null, kingsReveal: 'both' };
     if (decks === null) room.b9Settings.decks = null; // back to the recommended count
     else if (Number.isInteger(decks)) room.b9Settings.decks = Math.max(1, Math.min(3, decks));
-    if (typeof kingsPublic === 'boolean') room.b9Settings.kingsPublic = kingsPublic;
+    if (B99_KING_REVEALS.includes(kingsReveal)) room.b9Settings.kingsReveal = kingsReveal;
     broadcastRoomUpdate(room);
   });
 

@@ -150,8 +150,10 @@ function renderWaitingRoom(state) {
     $('decks-note').textContent = `${setup.decks * 52} 張牌，開局發掉 ${setup.total * 5} 張，牌堆剩 ${Math.max(0, setup.decks * 52 - setup.total * 5)} 張。`
         + `${setup.autoDecks ? `目前是建議值（${setup.defaultDecks} 副）。` : '房主自訂。'}`
         + `｜${setup.total} 人：紅隊 ${setup.total - black}、黑隊 ${black}`;
-    $('toggle-kings').checked = setup.kingsPublic;
+    $('toggle-kings').checked = setup.kingsReveal === 'both';
+    $('toggle-black-king').checked = setup.kingsReveal === 'black';
     $('toggle-kings').disabled = !isHost;
+    $('toggle-black-king').disabled = !isHost;
 
     const startBtn = $('btn-start-game');
     const statusMsg = $('lobby-status-msg');
@@ -180,7 +182,9 @@ function renderIdentity(state) {
     }
     $('role-card-value').textContent = `${TEAM_NAMES[my.team]}${my.king ? '｜👑 你是王！' : ''}`;
     $('role-card-desc').textContent = my.king
-        ? (state.kingsPublic ? '大家都知道你是王，小心別被爆掉！' : '你的身分是秘密，別讓對手發現你是王。')
+        ? (state.kingsReveal === 'both' || (state.kingsReveal === 'black' && my.team === 'black')
+            ? '大家都知道你是王，小心別被爆掉！'
+            : '你的身分是秘密，別讓對手發現你是王。')
         : `保護你們的王，想辦法讓${my.team === 'red' ? '黑' : '紅'}隊的王爆掉。`;
 }
 
@@ -403,9 +407,14 @@ function initEvents() {
         AudioSynth.playTick();
         socket.emit('bloody99_settings', { decks: latestState.setup.decks + 1 });
     });
+    // The two king options exclude each other; neither ticked hides both kings
     $('toggle-kings').addEventListener('change', () => {
         AudioSynth.playTick();
-        socket.emit('bloody99_settings', { kingsPublic: $('toggle-kings').checked });
+        socket.emit('bloody99_settings', { kingsReveal: $('toggle-kings').checked ? 'both' : 'none' });
+    });
+    $('toggle-black-king').addEventListener('change', () => {
+        AudioSynth.playTick();
+        socket.emit('bloody99_settings', { kingsReveal: $('toggle-black-king').checked ? 'black' : 'none' });
     });
 
     $('btn-start-game').addEventListener('click', () => {
