@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test:werewolf": "node tests/werewolf-bots.js",
-    "test:avalon": "node tests/avalon-bots.js"
+    "test:avalon": "node tests/avalon-bots.js",
+    "test:bloody99": "node tests/bloody99-bots.js"
   },
   "dependencies": {
     "express": "^4.19.2",

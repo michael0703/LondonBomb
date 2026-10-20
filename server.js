@@ -211,6 +211,10 @@ function getSanitizedRoomState(room, socketId) {
     return getAvalonRoomState(room, socketId);
   }
 
+  if (room.gameType === 'bloody99') {
+    return getBloody99RoomState(room, socketId);
+  }
+
   if (room.gameType === 'decrypto') {
     return getDecryptoRoomState(room, socketId);
   }
@@ -426,6 +430,9 @@ function handlePlayerDeparture(room, player, permanent) {
   }
   if (room.gameType === 'avalon' && permanent) {
     handleAvalonDeparture(room, player);
+  }
+  if (room.gameType === 'bloody99' && permanent) {
+    handleBloody99Departure(room, player);
   }
   if (room.gameType === 'decrypto' && permanent) {
     handleDecryptoDeparture(room, player);
@@ -658,6 +665,7 @@ io.on('connection', (socket) => {
       : room.gameType === 'mascarade' ? MASCARADE_MAX_PLAYERS
       : room.gameType === 'werewolf' ? WEREWOLF_MAX_PLAYERS
       : room.gameType === 'avalon' ? AVALON_MAX_PLAYERS
+      : room.gameType === 'bloody99' ? B99_MAX_PLAYERS
       : room.gameType === 'decrypto' ? DECRYPTO_MAX_PLAYERS
       : isWhoamiGame(room) ? WHOAMI_MAX_PLAYERS
       : room.gameType === 'timebomb' ? TIMEBOMB_MAX_PLAYERS : 8;
@@ -718,6 +726,10 @@ io.on('connection', (socket) => {
     }
     if (room.gameType === 'avalon') {
       socket.emit('errorMsg', '阿瓦隆需要真人一起玩，無法加入 AI 機器人。');
+      return;
+    }
+    if (room.gameType === 'bloody99') {
+      socket.emit('errorMsg', '血腥99需要真人一起玩，無法加入 AI 機器人。');
       return;
     }
     if (room.gameType === 'decrypto') {
@@ -876,6 +888,17 @@ io.on('connection', (socket) => {
         return;
       }
       startAvalonGame(room);
+      broadcastRoomUpdate(room);
+      return;
+    }
+
+    if (room.gameType === 'bloody99') {
+      const setupError = bloody99SetupError(getBloody99Setup(room));
+      if (setupError) {
+        socket.emit('errorMsg', setupError);
+        return;
+      }
+      startBloody99Game(room);
       broadcastRoomUpdate(room);
       return;
     }
@@ -1272,6 +1295,9 @@ io.on('connection', (socket) => {
     }
     if (room.gameType === 'avalon') {
       resetAvalonRoom(room);
+    }
+    if (room.gameType === 'bloody99') {
+      resetBloody99Room(room);
     }
     if (room.gameType === 'decrypto') {
       resetDecryptoRoom(room);
@@ -5351,6 +5377,344 @@ io.on('connection', (socket) => {
       addLog(room, 'system', '⏭️ 房主跳過了湖中女神。');
       avStartProposal(room);
     } else return;
+    broadcastRoomUpdate(room);
+  });
+});
+
+// ================= BLOODY 99 (血腥99) =================
+// 99 with teams. The total starts at 99; play a card, change the total, draw
+// one card (A and 7 draw nothing). Whoever pushes the total over 99 dies, and
+// so does anyone whose hand ends up empty. Two hidden teams (red / black, black
+// gets the extra player) each have a king: the team whose king dies first loses.
+// Kings can be public or hidden (host setting); nobody else reveals a team.
+//   A: take a random card from someone's hand    4: reverse    5: pick next player
+//   7: swap your whole hand with someone          10: ±10       Q: ±20
+//   J: pass                                        K: total becomes 99
+//   2 3 6 8 9: add their value                     (the total never goes below 0)
+
+const B99_MIN_PLAYERS = 4;
+const B99_MAX_PLAYERS = 10;
+const B99_HAND = 5;
+const B99_LIMIT = 99;
+const B99_SUITS = ['♠', '♥', '♦', '♣'];
+const B99_RANK_NAMES = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
+const B99_TEAM_NAMES = { red: '🔴 紅隊', black: '⚫ 黑隊' };
+
+const b9Player = (room, id) => room.players.find(p => p.id === id);
+const b9Alive = (room) => room.players.filter(p => !p.b9Dead && !p.b9Left);
+const b9CardName = (c) => `${c.suit}${B99_RANK_NAMES[c.rank] || c.rank}`;
+const b9DefaultDecks = (n) => (n <= 5 ? 1 : 2);
+
+function getBloody99Setup(room) {
+  const total = room.players.length;
+  const settings = room.b9Settings || {};
+  return {
+    total,
+    decks: settings.decks || b9DefaultDecks(total),
+    autoDecks: !settings.decks,
+    kingsPublic: settings.kingsPublic !== false
+  };
+}
+
+function bloody99SetupError(setup) {
+  if (setup.total < B99_MIN_PLAYERS || setup.total > B99_MAX_PLAYERS) {
+    return `血腥99需要 ${B99_MIN_PLAYERS} 到 ${B99_MAX_PLAYERS} 名玩家才能開始。`;
+  }
+  return null;
+}
+
+function resetBloody99Room(room) {
+  room.b9Deck = [];
+  room.b9Total = B99_LIMIT;
+  room.b9Dir = 1;
+  room.b9TurnId = null;
+  room.b9Last = null;
+  room.b9Plays = [];
+  room.b9Winner = null;
+  room.b9Reason = '';
+  room.b9Discarded = 0;
+  room.b9Dumped = 0;
+  room.players.forEach(p => {
+    p.b9Hand = [];
+    p.b9Team = null;
+    p.b9King = false;
+    p.b9Dead = false;
+    p.b9Left = false;
+    p.b9DeathReason = null;
+  });
+}
+
+function startBloody99Game(room) {
+  const setup = getBloody99Setup(room);
+  room.gameStarted = true;
+  room.gameEnded = false;
+  room.winnerTeam = null;
+  room.history = [];
+  resetBloody99Room(room);
+  room.b9Decks = setup.decks;
+  room.b9KingsPublic = setup.kingsPublic;
+
+  let id = 0;
+  const deck = [];
+  for (let d = 0; d < setup.decks; d++) {
+    B99_SUITS.forEach(suit => { for (let rank = 1; rank <= 13; rank++) deck.push({ id: id++, suit, rank }); });
+  }
+  room.b9Deck = shuffle(deck);
+  room.b9CardTotal = deck.length;
+
+  // Teams: black gets the extra player when the count is odd; one king each
+  const order = shuffle([...room.players]);
+  const blackCount = Math.ceil(order.length / 2);
+  order.forEach((p, i) => { p.b9Team = i < blackCount ? 'black' : 'red'; });
+  ['red', 'black'].forEach(team => {
+    const members = order.filter(p => p.b9Team === team);
+    members[Math.floor(Math.random() * members.length)].b9King = true;
+  });
+  room.players.forEach(p => { p.b9Hand = room.b9Deck.splice(0, B99_HAND); });
+
+  const first = room.players[Math.floor(Math.random() * room.players.length)];
+  room.b9TurnId = first.id;
+  room.roundPhase = 'play';
+  addLog(room, 'system', `🩸 血腥99開始！點數從 ${B99_LIMIT} 起跳。紅隊 ${room.players.length - blackCount} 人、黑隊 ${blackCount} 人，各有一位王。`);
+  if (room.b9KingsPublic) {
+    const kings = room.players.filter(p => p.b9King).map(p => `${B99_TEAM_NAMES[p.b9Team]}的王是 ${p.name}`);
+    addLog(room, 'system', `👑 ${kings.join('，')}。`);
+  }
+  addLog(room, 'system', `👉 由 ${first.name} 先出牌。`);
+}
+
+// Next living player from `fromId` in the current direction
+function b9NextAlive(room, fromId) {
+  const seats = room.players;
+  const idx = seats.findIndex(p => p.id === fromId);
+  for (let step = 1; step <= seats.length; step++) {
+    const next = seats[((idx + step * room.b9Dir) % seats.length + seats.length) % seats.length];
+    if (!next.b9Dead && !next.b9Left) return next;
+  }
+  return null;
+}
+
+function b9EndGame(room, winner, reason) {
+  room.b9Winner = winner;
+  room.b9Reason = reason;
+  room.winnerTeam = winner;
+  room.roundPhase = 'game_over';
+  room.gameEnded = true;
+  addLog(room, 'system', `🏁 ${B99_TEAM_NAMES[winner]}獲勝！${reason}`);
+}
+
+// Returns true if the game ended
+function b9Kill(room, p, reason) {
+  if (p.b9Dead) return false;
+  p.b9Dead = true;
+  p.b9DeathReason = reason;
+  // A dead player's cards leave the game
+  room.b9Dumped = (room.b9Dumped || 0) + p.b9Hand.length;
+  p.b9Hand = [];
+  room.b9Total = B99_LIMIT;
+  addLog(room, 'death', `💀 ${p.name} ${reason}，死亡！點數重設為 ${B99_LIMIT}。`);
+  if (p.b9King) {
+    const other = p.b9Team === 'red' ? 'black' : 'red';
+    b9EndGame(room, other, `${B99_TEAM_NAMES[p.b9Team]}的王 ${p.name} 倒下了。`);
+    return true;
+  }
+  if (b9Alive(room).length < 2) {
+    const last = b9Alive(room)[0];
+    b9EndGame(room, last ? last.b9Team : 'black', '只剩一個人了。');
+    return true;
+  }
+  return false;
+}
+
+// Anyone left with an empty hand dies right away (actor first, so their seat decides the turn)
+function b9KillEmptyHands(room) {
+  for (const p of b9Alive(room)) {
+    if (p.b9Hand.length === 0 && b9Kill(room, p, '手上沒有牌')) return true;
+  }
+  return false;
+}
+
+// Plays a card for `player`; returns an error string, or null when done
+function b9Play(room, player, { cardId, sign, targetId } = {}) {
+  const idx = player.b9Hand.findIndex(c => c.id === cardId);
+  if (idx === -1) return '你手上沒有這張牌。';
+  const card = player.b9Hand[idx];
+  const target = targetId !== undefined ? b9Player(room, targetId) : null;
+  const needsTarget = card.rank === 1 || card.rank === 5 || card.rank === 7;
+  if (needsTarget && (!target || target.id === player.id || target.b9Dead || target.b9Left)) return '請選一位其他還活著的玩家。';
+  if (card.rank === 1 && target.b9Hand.length === 0) return '他手上沒有牌可以抽。';
+  if ((card.rank === 10 || card.rank === 12) && sign !== '+' && sign !== '-') return '請選加或減。';
+
+  player.b9Hand.splice(idx, 1);
+  const before = room.b9Total;
+  let text = '';
+  let nextId = null;
+  switch (card.rank) {
+    case 1: {
+      const taken = target.b9Hand.splice(Math.floor(Math.random() * target.b9Hand.length), 1)[0];
+      player.b9Hand.push(taken);
+      text = `抽走了 ${target.name} 的一張牌`;
+      break;
+    }
+    case 4:
+      room.b9Dir *= -1;
+      text = '迴轉！出牌順序反過來';
+      break;
+    case 5:
+      nextId = target.id;
+      text = `指定 ${target.name} 下一個出牌`;
+      break;
+    case 7: {
+      const mine = player.b9Hand;
+      player.b9Hand = target.b9Hand;
+      target.b9Hand = mine;
+      text = `和 ${target.name} 交換了全部手牌`;
+      break;
+    }
+    case 10:
+    case 12: {
+      const amount = card.rank === 10 ? 10 : 20;
+      room.b9Total = Math.max(0, room.b9Total + (sign === '+' ? amount : -amount));
+      text = `${sign === '+' ? '+' : '−'}${amount}`;
+      break;
+    }
+    case 11:
+      text = 'Pass';
+      break;
+    case 13:
+      room.b9Total = B99_LIMIT;
+      text = `點數直接變成 ${B99_LIMIT}`;
+      break;
+    default:
+      room.b9Total += card.rank;
+      text = `+${card.rank}`;
+  }
+  const entry = { by: player.id, card: { suit: card.suit, rank: card.rank }, text, before, after: room.b9Total, targetId: target ? target.id : null };
+  room.b9Last = entry;
+  room.b9Plays.push(entry);
+  room.b9Discarded = (room.b9Discarded || 0) + 1;
+  addLog(room, 'play', `🃏 ${player.name} 出了 ${b9CardName(card)}：${text}（點數 ${before} ➔ ${room.b9Total}）`);
+
+  // Bust: the player who went over dies, the next seat continues
+  if (room.b9Total > B99_LIMIT) {
+    entry.bust = true;
+    const next = b9NextAlive(room, player.id);
+    if (b9Kill(room, player, `把點數加到 ${room.b9Total}，爆了`)) return null;
+    room.b9TurnId = next.id;
+    return null;
+  }
+
+  // Draw back up (A and 7 draw nothing)
+  if (card.rank !== 1 && card.rank !== 7 && room.b9Deck.length) player.b9Hand.push(room.b9Deck.shift());
+
+  const next = nextId ? b9Player(room, nextId) : b9NextAlive(room, player.id);
+  if (b9KillEmptyHands(room)) return null;
+  room.b9TurnId = next && !next.b9Dead ? next.id : (b9NextAlive(room, player.id) || {}).id;
+  return null;
+}
+
+function getBloody99RoomState(room, socketId) {
+  const me = b9Player(room, socketId);
+  const setup = getBloody99Setup(room);
+  const reveal = room.gameEnded;
+  const players = room.players.map(p => {
+    const kingKnown = reveal || p.id === socketId || (room.b9KingsPublic && p.b9King);
+    return {
+      id: p.id,
+      name: p.name,
+      host: p.host,
+      connected: p.connected,
+      isBot: false,
+      dead: !!p.b9Dead,
+      left: !!p.b9Left,
+      deathReason: p.b9DeathReason || null,
+      handCount: (p.b9Hand || []).length,
+      king: kingKnown ? !!p.b9King : null,
+      team: kingKnown && (reveal || p.id === socketId || p.b9King) ? p.b9Team : null
+    };
+  });
+  return {
+    roomCode: room.roomCode,
+    gameType: room.gameType,
+    gameStarted: room.gameStarted,
+    gameEnded: room.gameEnded,
+    roundPhase: room.roundPhase,
+    setup: { ...setup, error: bloody99SetupError(setup), defaultDecks: b9DefaultDecks(setup.total) },
+    limit: B99_LIMIT,
+    total: room.gameStarted ? room.b9Total : B99_LIMIT,
+    dir: room.b9Dir || 1,
+    turnId: room.b9TurnId || null,
+    deckCount: (room.b9Deck || []).length,
+    cardStats: { total: room.b9CardTotal || 0, played: room.b9Discarded || 0, dumped: room.b9Dumped || 0 },
+    decks: room.b9Decks || setup.decks,
+    kingsPublic: room.gameStarted ? !!room.b9KingsPublic : setup.kingsPublic,
+    last: room.b9Last || null,
+    playCount: (room.b9Plays || []).length,
+    plays: (room.b9Plays || []).slice(-30),
+    winner: room.b9Winner || null,
+    reason: room.b9Reason || '',
+    my: me && me.b9Team ? { team: me.b9Team, king: !!me.b9King, hand: me.b9Hand || [], dead: !!me.b9Dead } : null,
+    players,
+    history: room.history,
+    me: players.find(p => p.id === socketId) || null
+  };
+}
+
+function handleBloody99Departure(room, player) {
+  if (!room.gameStarted || room.gameEnded || player.b9Left || player.b9Dead) return;
+  const wasTurn = room.b9TurnId === player.id;
+  const next = wasTurn ? b9NextAlive(room, player.id) : null;
+  player.b9Left = true;
+  if (b9Kill(room, player, '離開了遊戲')) return;
+  if (wasTurn && next) room.b9TurnId = next.id;
+}
+
+function getBloody99Context(socket) {
+  const room = getRoomBySocket(socket);
+  if (!room || room.gameType !== 'bloody99' || !room.gameStarted || room.gameEnded) return null;
+  const player = b9Player(room, socket.id);
+  if (!player || player.b9Dead || player.b9Left) return null;
+  return { room, player };
+}
+
+io.on('connection', (socket) => {
+  // Event: Host changes the number of decks / whether the kings are public
+  socket.on('bloody99_settings', ({ decks, kingsPublic } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room || room.gameType !== 'bloody99' || room.gameStarted) return;
+    const player = b9Player(room, socket.id);
+    if (!player || !player.host) return;
+    if (!room.b9Settings) room.b9Settings = { decks: null, kingsPublic: true };
+    if (decks === null) room.b9Settings.decks = null; // back to the recommended count
+    else if (Number.isInteger(decks)) room.b9Settings.decks = Math.max(1, Math.min(3, decks));
+    if (typeof kingsPublic === 'boolean') room.b9Settings.kingsPublic = kingsPublic;
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Play a card on your turn
+  socket.on('bloody99_play', (action = {}) => {
+    const ctx = getBloody99Context(socket);
+    if (!ctx) return;
+    const { room, player } = ctx;
+    if (room.b9TurnId !== player.id) {
+      socket.emit('errorMsg', '還沒輪到你。');
+      return;
+    }
+    const error = b9Play(room, player, action);
+    if (error) socket.emit('errorMsg', error);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Host skips a player who is away (they don't play this turn)
+  socket.on('bloody99_skip', () => {
+    const ctx = getBloody99Context(socket);
+    if (!ctx || !ctx.player.host) return;
+    const { room } = ctx;
+    const current = b9Player(room, room.b9TurnId);
+    const next = b9NextAlive(room, room.b9TurnId);
+    if (!current || !next) return;
+    room.b9TurnId = next.id;
+    addLog(room, 'system', `⏭️ 房主跳過了 ${current.name}。`);
     broadcastRoomUpdate(room);
   });
 });

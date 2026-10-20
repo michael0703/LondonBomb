@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>血腥99 | 桌遊入口</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- NICKNAME & LOBBY LOGIN VIEW -->
+        <div id="login-view" class="view-panel active">
+            <div class="steampunk-border"></div>
+
+            <h1 class="logo-text">🩸 血腥99 🩸</h1>
+            <p class="logo-subtext">從 99 開始，誰爆誰死；保護你們的王！</p>
+
+            <div class="input-group">
+                <label for="input-nickname">輸入你的暱稱</label>
+                <input type="text" id="input-nickname" placeholder="例如：賭神..." maxlength="10">
+            </div>
+
+            <div class="input-group">
+                <label for="input-room-code">房號 (加入已有房間)</label>
+                <input type="text" id="input-room-code" placeholder="例如：ABCD..." maxlength="4" style="text-transform: uppercase;">
+            </div>
+
+            <div class="button-row">
+                <button id="btn-create-room" class="btn btn-gold">
+                    <span>創建新房間</span>
+                </button>
+                <button id="btn-join-room" class="btn btn-brass">
+                    <span>加入已有房間</span>
+                </button>
+            </div>
+
+            <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="margin: 15px auto 0; width: 100%; max-width: 320px;">
+                <span>⬅️ 返回桌遊入口</span>
+            </button>
+        </div>
+
+        <!-- WAITING LOBBY VIEW -->
+        <div id="waiting-view" class="view-panel">
+            <div class="steampunk-border"></div>
+            <div class="lobby-header">
+                <div class="room-indicator">
+                    <span class="label">當前房號</span>
+                    <span id="display-room-code" class="value">----</span>
+                </div>
+                <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">
+                    <span>🚪 離開大廳</span>
+                </button>
+            </div>
+
+            <h2 class="lobby-title">🩸 地下賭場 🩸</h2>
+
+            <div class="lobby-columns">
+                <div class="lobby-section players-section">
+                    <h3>👥 在線玩家 (<span id="player-count">0</span>/10)</h3>
+                    <ul id="lobby-players-list"></ul>
+                </div>
+
+                <div class="lobby-section rules-section">
+                    <h3>⚙️ 遊戲設定</h3>
+                    <div class="ms-settings">
+                        <div class="role-stepper-row">
+                            <span>🃏 用幾副牌</span>
+                            <div class="stepper">
+                                <button id="btn-decks-minus" class="btn btn-brass btn-small"><span>－</span></button>
+                                <strong id="setting-decks">1</strong> 副
+                                <button id="btn-decks-plus" class="btn btn-brass btn-small"><span>＋</span></button>
+                            </div>
+                        </div>
+                        <p id="decks-note" class="setting-note"></p>
+                        <label class="keep-log-row">
+                            <input type="checkbox" id="toggle-kings">
+                            <span>👑 公開兩隊的王是誰（不勾的話，兩個王都不公開）</span>
+                        </label>
+                    </div>
+
+                    <h3>📋 規則重點</h3>
+                    <ul>
+                        <li>點數從 <strong>99</strong> 開始，誰讓點數<strong>超過 99</strong> 誰就死。</li>
+                        <li>分<strong>紅、黑兩隊</strong>（奇數時黑隊多一人），每個人只知道自己是哪一隊。</li>
+                        <li>兩隊各有一位<strong>王</strong>，<strong>哪一隊的王先死，那一隊就輸</strong>。</li>
+                        <li>手上沒牌的人立刻死亡。</li>
+                    </ul>
+                    <button class="btn btn-brass btn-help" type="button" data-open-help>
+                        <span>📖 完整規則與功能牌</span>
+                    </button>
+                    <div class="host-controls">
+                        <p id="lobby-status-msg" class="status-msg">等待其他玩家加入...</p>
+                        <button id="btn-start-game" class="btn btn-gold btn-large disabled" disabled>
+                            <span>開始遊戲</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GAME PLAY VIEW -->
+        <div id="game-view" class="view-panel">
+            <button id="role-card" class="my-card role-card b9-identity" type="button">
+                <span class="my-card-label">你的陣營（點一下顯示／隱藏）</span>
+                <strong id="role-card-value" class="my-card-value">👀 點我看陣營</strong>
+                <span id="role-card-desc" class="my-card-desc"></span>
+            </button>
+
+            <div class="b9-total-box">
+                <div class="b9-side"><span>出牌方向</span><strong id="display-dir">➡️</strong></div>
+                <div class="b9-total"><span>目前點數</span><strong id="display-total">99</strong><span>超過 99 就死</span></div>
+                <div class="b9-side"><span>牌堆剩餘</span><strong id="display-deck">0</strong></div>
+            </div>
+
+            <div id="last-play" class="b9-last">還沒有人出牌</div>
+
+            <div id="ticker-banner">
+                <span id="ticker-text">遊戲準備中...</span>
+            </div>
+
+            <div class="bottom-controls">
+                <div id="control-panel" class="ms-panel"></div>
+            </div>
+
+            <div class="uc-section">
+                <h3>👥 玩家（照出牌順序）</h3>
+                <ul id="players-list" class="ms-players"></ul>
+            </div>
+
+            <div class="uc-section">
+                <h3>📜 出牌紀錄</h3>
+                <ul id="play-log" class="effect-list"></ul>
+                <button class="btn btn-brass btn-help" type="button" data-open-help>
+                    <span>📖 完整規則與功能牌</span>
+                </button>
+                <button onclick="BoardgameSession.exitToPortal()" class="btn btn-brass btn-small" style="margin-top: 6px;">
+                    <span>🚪 離開遊戲</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME OVER MODAL -->
+    <div id="game-over-modal" class="modal-overlay">
+        <div class="steampunk-modal ww-modal">
+            <div class="modal-gears">🩸👑🩸</div>
+            <h1 id="winner-title" class="logo-text">遊戲結束</h1>
+            <p id="winner-reason" class="modal-desc"></p>
+            <div id="winner-names" class="winner-names"></div>
+            <ul id="final-list" class="scores-list"></ul>
+            <div class="modal-actions">
+                <button id="btn-restart" class="btn btn-gold" style="display: none;">
+                    <span>🔁 再玩一局（回大廳）</span>
+                </button>
+                <button id="btn-close-modal" class="btn btn-brass">
+                    <span>看紀錄</span>
+                </button>
+                <button id="btn-exit-lobby" class="btn btn-brass">
+                    <span>回到桌遊入口</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HELP MODAL -->
+    <div id="help-modal" class="modal-overlay">
+        <div class="steampunk-modal ww-modal help-modal">
+            <h2 class="help-title">📖 血腥99 規則</h2>
+            <p class="help-note">點標題展開或收合。</p>
+
+            <details class="help-section" open>
+                <summary>📋 遊戲流程</summary>
+                <ul class="help-list">
+                    <li>每人 <strong>5 張</strong>手牌，桌上點數一開始就是 <strong>99</strong>。</li>
+                    <li>輪流出一張牌改變點數，出完<strong>補一張</strong>（出 A 或 7 不補）。牌堆抽完就不再補。</li>
+                    <li>把點數加到<strong>超過 99</strong> 的人死亡。點數最低是 0，不會變負數。</li>
+                    <li><strong>手上沒有牌的人立刻死亡</strong>（例如被拿 7 換到空手、最後一張被 A 抽走）。</li>
+                    <li>有人死亡後，點數重設為 99，由下一位繼續。</li>
+                </ul>
+            </details>
+
+            <details class="help-section" open>
+                <summary>🃏 功能牌</summary>
+                <table class="help-table b9-card-table">
+                    <tbody>
+                        <tr><td>A</td><td>抽任意一位玩家的一張手牌（不能看），點數不變，不補牌</td></tr>
+                        <tr><td>4</td><td>迴轉，出牌順序反過來</td></tr>
+                        <tr><td>5</td><td>指定下一個出牌的人</td></tr>
+                        <tr><td>7</td><td>和任意一位玩家交換全部手牌，點數不變，不補牌。如果你手上只剩這張 7，對方會換到空手，<strong>立刻死亡</strong></td></tr>
+                        <tr><td>10</td><td>+10 或 −10</td></tr>
+                        <tr><td>J</td><td>Pass，點數不變</td></tr>
+                        <tr><td>Q</td><td>+20 或 −20</td></tr>
+                        <tr><td>K</td><td>點數直接變成 99</td></tr>
+                        <tr><td>2 3 6 8 9</td><td>照點數加（點數 99 時一定會爆）</td></tr>
+                    </tbody>
+                </table>
+            </details>
+
+            <details class="help-section">
+                <summary>👑 陣營與勝負</summary>
+                <ul class="help-list">
+                    <li>大家分成<strong>紅隊</strong>和<strong>黑隊</strong>，人數差不多；奇數時黑隊多一人。</li>
+                    <li>每個人<strong>只知道自己是哪一隊</strong>，不知道別人是哪一隊。</li>
+                    <li>兩隊各有一位<strong>王</strong>。房主可以選擇公開兩個王（大家都知道誰是王、是哪一隊），或兩個王都不公開。</li>
+                    <li><strong>哪一隊的王先死，那一隊就輸</strong>。一般隊員死掉不會輸，但會少一個幫手。</li>
+                    <li>所以要想辦法讓對方的王爆掉，同時保護自己的王，又不能太明顯暴露自己是哪一隊。</li>
+                </ul>
+            </details>
+
+            <div class="modal-actions">
+                <button id="btn-close-help" class="btn btn-gold" type="button"><span>知道了</span></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="error-toast" class="error-toast">錯誤提示資訊</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/shared/session.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
