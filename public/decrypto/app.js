@@ -54,6 +54,49 @@ let draftKey = null;
 let picks = [null, null, null];
 let clueDraft = ['', '', ''];
 let builtPanelKey = null;
+let clockOffset = 0;
+let autoSentKey = null;
+
+const fmtTime = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '不限時');
+
+// Does my team still owe a guess this turn?
+function myGuessPending(state) {
+    const cur = state.current;
+    const t = state.myTeam;
+    if (!cur || t === null || state.roundPhase !== 'guess') return false;
+    if (t === cur.team) return state.teams[t].encryptorId !== socket.id && !cur.decodeDone;
+    return cur.interceptAllowed && !cur.interceptDone;
+}
+
+// Guessing countdown: when time runs out there are 5 more seconds, then a
+// complete pick is sent automatically (the server settles shortly after)
+function tickGuessTimer() {
+    const state = latestState;
+    const box = document.querySelector('.dc-timer');
+    if (!state || !state.current || state.roundPhase !== 'guess' || !state.current.endsAt) return;
+    const cur = state.current;
+    const now = Date.now() + clockOffset;
+    const pending = myGuessPending(state);
+    if (box) {
+        if (now < cur.endsAt) {
+            const left = Math.ceil((cur.endsAt - now) / 1000);
+            box.className = 'dc-timer' + (left <= 15 ? ' warn' : '');
+            box.textContent = `⏱️ 剩下 ${fmtTime(left)}`;
+        } else {
+            const left = Math.max(0, Math.ceil((cur.graceEndsAt - now) / 1000));
+            box.className = 'dc-timer urgent';
+            box.textContent = pending
+                ? `⏰ 時間到！${left} 秒後自動送出目前選好的密碼`
+                : `⏰ 時間到！${left} 秒後公布`;
+        }
+    }
+    const key = `${state.round}-${cur.team}`;
+    if (pending && now >= cur.graceEndsAt - 300 && autoSentKey !== key && picks.every(Boolean)) {
+        autoSentKey = key;
+        socket.emit('decrypto_guess', { code: [...picks] });
+    }
+}
+setInterval(tickGuessTimer, 250);
 
 function switchView(name) {
     Object.entries(views).forEach(([key, el]) => el.classList.toggle('active', key === name));
@@ -132,6 +175,11 @@ function renderWaitingRoom(state) {
     $('setting-target').textContent = state.target;
     $('btn-target-minus').style.visibility = isHost && state.target > minTarget ? 'visible' : 'hidden';
     $('btn-target-plus').style.visibility = isHost && state.target < maxTarget ? 'visible' : 'hidden';
+    const options = state.guessSecondsOptions;
+    const idx = options.indexOf(state.guessSeconds);
+    $('setting-time').textContent = fmtTime(state.guessSeconds);
+    $('btn-time-minus').style.visibility = isHost && idx > 0 ? 'visible' : 'hidden';
+    $('btn-time-plus').style.visibility = isHost && idx < options.length - 1 ? 'visible' : 'hidden';
     $('target-note').textContent = `先拿到 ${state.target} 個🎯攔截就贏，累積 ${state.target} 個❌失誤就輸；最多 ${state.maxRounds} 回合。${isHost ? '（預設 2 個，想玩久一點可以調高）' : ''}`;
     $('rule-target').innerHTML = `<strong>攔截 ${state.target} 次就贏，失誤 ${state.target} 次就輸</strong>。${state.maxRounds} 回合都沒分出勝負（或兩隊同一回合同時達成），就比「攔截－失誤」，一樣就平手。`;
 
@@ -266,6 +314,8 @@ function renderControls(state) {
     const encName = nameOf(state, cur.encryptorId);
 
     if (state.roundPhase === 'guess') {
+        // Countdown, kept up to date by tickGuessTimer()
+        if (cur.endsAt) panel.appendChild(el('div', 'dc-timer', ''));
         hint(`📢 ${activeTeam.name}的提示（${encName} 唸）：`);
         renderClueList(panel, cur.clues, cur.team === t && amEncryptor ? state.myCode : null, null);
 
@@ -400,6 +450,7 @@ function renderGameBoard(state, local = false) {
     renderRoundLog(state);
     renderGameOver(state);
     playStateSounds(state);
+    tickGuessTimer();
 }
 
 function playStateSounds(state) {
@@ -444,6 +495,16 @@ function initEvents() {
         socket.emit('decrypto_settings', { target: latestState.target + 1 });
     });
 
+    const stepTime = (delta) => {
+        const options = latestState.guessSecondsOptions;
+        const next = options[options.indexOf(latestState.guessSeconds) + delta];
+        if (next === undefined) return;
+        AudioSynth.playTick();
+        socket.emit('decrypto_settings', { guessSeconds: next });
+    };
+    $('btn-time-minus').addEventListener('click', () => stepTime(-1));
+    $('btn-time-plus').addEventListener('click', () => stepTime(1));
+
     $('btn-start-game').addEventListener('click', () => {
         AudioSynth.playTick();
         socket.emit('startGame');
@@ -466,6 +527,7 @@ function initEvents() {
 // SOCKET MESSAGE HANDLERS
 socket.on('roomUpdate', (state) => {
     latestState = state;
+    if (state.serverNow) clockOffset = state.serverNow - Date.now();
     if (!state.gameStarted) {
         lastSoundKey = null;
         modalDismissed = false;

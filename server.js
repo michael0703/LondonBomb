@@ -4538,6 +4538,13 @@ const DECRYPTO_MAX_ROUNDS = 8;
 const DECRYPTO_TARGET_DEFAULT = 2;
 const DECRYPTO_TARGET_MIN = 1;
 const DECRYPTO_TARGET_MAX = 4;
+// Time limit for each guessing turn (host setting, 0 = no limit). When it runs
+// out, teams that haven't sent get 5 more seconds; then the guess is settled.
+const DECRYPTO_GUESS_SECONDS = [0, 60, 90, 120, 180, 240];
+const DECRYPTO_GUESS_DEFAULT = 120;
+const DECRYPTO_GRACE_MS = 5000;
+// Phones auto-send a complete pick at the end of the grace period; wait a moment for it
+const DECRYPTO_AUTOSEND_WAIT_MS = 1500;
 const DECRYPTO_TEAM_NAMES = ['🔵 藍隊', '🔴 紅隊'];
 // All 24 codes: three different digits from 1-4
 const DECRYPTO_CODES = (() => {
@@ -4554,6 +4561,10 @@ const dcCodeText = (code) => (code ? code.join('-') : '?');
 // Tokens needed to decide the game (host setting); every extra token adds 2 rounds
 const decryptoTarget = (room) => (room.dcSettings && room.dcSettings.target) || DECRYPTO_TARGET_DEFAULT;
 const decryptoMaxRounds = (target) => DECRYPTO_MAX_ROUNDS + (target - DECRYPTO_TARGET_DEFAULT) * 2;
+const decryptoGuessSeconds = (room) => {
+  const v = room.dcSettings && room.dcSettings.guessSeconds;
+  return DECRYPTO_GUESS_SECONDS.includes(v) ? v : DECRYPTO_GUESS_DEFAULT;
+};
 
 function isValidDecryptoCode(code) {
   return Array.isArray(code) && code.length === 3 && code.every(d => Number.isInteger(d) && d >= 1 && d <= 4) && new Set(code).size === 3;
@@ -4587,6 +4598,8 @@ function resetDecryptoRoom(room) {
   room.dcGuess = null;
   room.dcHistory = [];
   room.dcResult = null;
+  clearTimeout(room.dcGuessTimer);
+  room.dcGuessTimer = null;
   room.players.forEach(p => { p.dcLeft = false; });
 }
 
@@ -4598,6 +4611,7 @@ function startDecryptoGame(room) {
   resetDecryptoRoom(room);
   room.dcTarget = decryptoTarget(room);
   room.dcMaxRounds = decryptoMaxRounds(room.dcTarget);
+  room.dcGuessSeconds = decryptoGuessSeconds(room);
   const words = shuffle([...DECRYPTO_WORDS]);
   room.dcWords = [words.slice(0, 4), words.slice(4, 8)];
   room.dcCodeDecks = [shuffle(DECRYPTO_CODES.map(c => [...c])), shuffle(DECRYPTO_CODES.map(c => [...c]))];
@@ -4629,11 +4643,36 @@ function startDecryptoRound(room) {
 function startDecryptoGuessing(room, team) {
   room.roundPhase = 'guess';
   room.dcActive = team;
+  const seconds = room.dcGuessSeconds;
+  const endsAt = seconds ? Date.now() + seconds * 1000 : null;
   room.dcGuess = {
     decode: null, decodeBy: null,
     intercept: null, interceptBy: null,
-    interceptAllowed: room.dcRound > 1
+    interceptAllowed: room.dcRound > 1,
+    endsAt,
+    graceEndsAt: endsAt ? endsAt + DECRYPTO_GRACE_MS : null
   };
+  clearTimeout(room.dcGuessTimer);
+  room.dcGuessTimer = null;
+  if (endsAt) {
+    const guess = room.dcGuess;
+    room.dcGuessTimer = setTimeout(() => {
+      room.dcGuessTimer = null;
+      if (room.dcGuess !== guess || room.roundPhase !== 'guess' || room.gameEnded) return;
+      addLog(room, 'system', '⏰ 時間到！還沒送出的隊伍當作沒猜。');
+      forceRevealDecrypto(room);
+      broadcastRoomUpdate(room);
+    }, endsAt + DECRYPTO_GRACE_MS + DECRYPTO_AUTOSEND_WAIT_MS - Date.now());
+  }
+}
+
+// Settle the current guess now: a missing decode counts as wrong, a missing intercept as no attempt
+function forceRevealDecrypto(room) {
+  const g = room.dcGuess;
+  if (!g || room.roundPhase !== 'guess') return;
+  if (!g.decode) g.decode = [0, 0, 0];
+  if (!g.intercept) g.interceptAllowed = false;
+  revealDecrypto(room);
 }
 
 function maybeRevealDecrypto(room) {
@@ -4643,6 +4682,8 @@ function maybeRevealDecrypto(room) {
 }
 
 function revealDecrypto(room) {
+  clearTimeout(room.dcGuessTimer);
+  room.dcGuessTimer = null;
   const t = room.dcActive;
   const g = room.dcGuess;
   const code = room.dcCodes[t];
@@ -4677,6 +4718,8 @@ function decryptoTokens(room) {
 }
 
 function endDecryptoGame(room, winner, reason) {
+  clearTimeout(room.dcGuessTimer);
+  room.dcGuessTimer = null;
   room.dcResult = { winner, reason };
   room.roundPhase = 'game_over';
   room.gameEnded = true;
@@ -4753,7 +4796,9 @@ function getDecryptoRoomState(room, socketId) {
       decodeBy: g ? g.decodeBy : null,
       intercept: g && (phase === 'reveal' || myTeam === 1 - active) ? g.intercept : null,
       interceptBy: g ? g.interceptBy : null,
-      result: phase === 'reveal' ? room.dcHistory[room.dcHistory.length - 1] : null
+      result: phase === 'reveal' ? room.dcHistory[room.dcHistory.length - 1] : null,
+      endsAt: g ? g.endsAt : null,
+      graceEndsAt: g ? g.graceEndsAt : null
     };
   }
   return {
@@ -4767,6 +4812,9 @@ function getDecryptoRoomState(room, socketId) {
     target: room.gameStarted ? room.dcTarget : decryptoTarget(room),
     maxRounds: room.gameStarted ? room.dcMaxRounds : decryptoMaxRounds(decryptoTarget(room)),
     targetRange: [DECRYPTO_TARGET_MIN, DECRYPTO_TARGET_MAX],
+    guessSeconds: room.gameStarted ? room.dcGuessSeconds : decryptoGuessSeconds(room),
+    guessSecondsOptions: DECRYPTO_GUESS_SECONDS,
+    serverNow: Date.now(),
     teams,
     myTeam,
     myCode: amEncryptor && phase === 'clue' ? room.dcCodes[myTeam] : (amEncryptor && phase === 'guess' && active === myTeam ? room.dcCodes[myTeam] : null),
@@ -4830,12 +4878,14 @@ io.on('connection', (socket) => {
   });
 
   // Event: Host changes how many tokens decide the game
-  socket.on('decrypto_settings', ({ target } = {}) => {
+  socket.on('decrypto_settings', ({ target, guessSeconds } = {}) => {
     const room = getRoomBySocket(socket);
     if (!room || room.gameType !== 'decrypto' || room.gameStarted) return;
     const player = dcPlayer(room, socket.id);
-    if (!player || !player.host || !Number.isInteger(target)) return;
-    room.dcSettings = { target: Math.max(DECRYPTO_TARGET_MIN, Math.min(DECRYPTO_TARGET_MAX, target)) };
+    if (!player || !player.host) return;
+    if (!room.dcSettings) room.dcSettings = {};
+    if (Number.isInteger(target)) room.dcSettings.target = Math.max(DECRYPTO_TARGET_MIN, Math.min(DECRYPTO_TARGET_MAX, target));
+    if (DECRYPTO_GUESS_SECONDS.includes(guessSeconds)) room.dcSettings.guessSeconds = guessSeconds;
     broadcastRoomUpdate(room);
   });
 
@@ -4902,10 +4952,7 @@ io.on('connection', (socket) => {
   socket.on('decrypto_forceReveal', () => {
     const ctx = getDecryptoContext(socket, 'guess');
     if (!ctx || !ctx.player.host) return;
-    const g = ctx.room.dcGuess;
-    if (!g.decode) g.decode = [0, 0, 0];
-    if (!g.intercept) g.interceptAllowed = false;
-    revealDecrypto(ctx.room);
+    forceRevealDecrypto(ctx.room);
     broadcastRoomUpdate(ctx.room);
   });
 

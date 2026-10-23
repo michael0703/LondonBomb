@@ -1493,3 +1493,21 @@ body {
 
 .target-row .stepper { display: flex; align-items: center; gap: 10px; }
 .target-row .stepper strong { min-width: 1.4em; text-align: center; }
+
+/* Guessing countdown */
+.dc-timer {
+    width: 100%;
+    max-width: 600px;
+    text-align: center;
+    font-weight: 800;
+    font-size: 1.05rem;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: #eef7f5;
+    border: 2px solid var(--color-success-green);
+}
+
+.dc-timer.warn { background: #fff6e3; border-color: var(--color-gold); }
+.dc-timer.urgent { background: #fdeeea; border-color: var(--color-bad-red); color: #9b4232; animation: dc-pulse 0.8s ease-in-out infinite alternate; }
+
+@keyframes dc-pulse { from { transform: scale(1); } to { transform: scale(1.03); } }
