@@ -268,9 +268,14 @@ function getSanitizedRoomState(room, socketId) {
 
 // Helper: Broadcast room update to all players in the room
 function broadcastRoomUpdate(room) {
+  // Who is still looking at the last game's results (see restartGame / lobby_back)
+  if (room.gameStarted) room.resultViewers = [];
+  const viewers = (room.resultViewers || []).filter(id => room.players.some(p => p.id === id && p.connected));
+  room.resultViewers = viewers;
   room.players.forEach(p => {
     if (p.connected && !p.isBot) {
       io.to(p.id).emit('roomUpdate', getSanitizedRoomState(room, p.id));
+      io.to(p.id).emit('resultViewers', { ids: viewers });
     }
   });
 }
@@ -1241,6 +1246,10 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.id === socket.id);
     // Mid-game only the host can reset; once the game is over anyone can bring everyone back to the lobby
     if (!player || (!player.host && !room.gameEnded)) return;
+    // After a finished game, everyone else may keep looking at the results;
+    // they come back to the lobby on their own (lobby_back)
+    const finished = room.gameEnded;
+    room.resultViewers = finished ? room.players.filter(p => p.id !== player.id && !p.isBot).map(p => p.id) : [];
 
     // Reset room state
     room.gameStarted = false;
@@ -1303,7 +1312,15 @@ io.on('connection', (socket) => {
       resetDecryptoRoom(room);
     }
 
-    addLog(room, 'system', '房主重設了對局，返回候戰室。');
+    addLog(room, 'system', finished ? `🏠 ${player.name} 回到大廳了，其他人可以看完結果再回來。` : '房主重設了對局，返回候戰室。');
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Back to the lobby after looking at the results (the room was already reset)
+  socket.on('lobby_back', () => {
+    const room = getRoomBySocket(socket);
+    if (!room || !room.resultViewers || !room.resultViewers.includes(socket.id)) return;
+    room.resultViewers = room.resultViewers.filter(id => id !== socket.id);
     broadcastRoomUpdate(room);
   });
 

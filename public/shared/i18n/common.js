@@ -186,5 +186,9 @@ BoardgameI18n.add({
     '只有在回答階段才能自訂題目！': 'You can only write a custom topic while answering!',
     '只有當前隊長才能自訂題目！': 'Only the captain can write a custom topic!',
     '自訂題目與刻度描述不能為空！': 'The custom topic and both scale ends must be filled in!',
-    '✍️ 隊長 {0} 手動自訂了新題目：『{1}』！': '✍️ Captain {0} wrote a new topic: "{1}"!'
+    '✍️ 隊長 {0} 手動自訂了新題目：『{1}』！': '✍️ Captain {0} wrote a new topic: "{1}"!',
+    // Going back to the lobby one by one
+    "🏠 其他人已經回到大廳了，你可以慢慢看結果；看完按「回大廳」就會過去。": "🏠 The others went back to the lobby. Take your time with the results; press \"back to lobby\" when you're done.",
+    "⏳ 還在看結果：{0}": "⏳ Still looking at the results: {0}",
+    "🏠 {0} 回到大廳了，其他人可以看完結果再回來。": "🏠 {0} went back to the lobby. Everyone else can come back after looking at the results."
 });

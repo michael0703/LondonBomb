@@ -30,8 +30,123 @@ window.BoardgameSession = (() => {
 
     function connect(gameType) {
         socket = io({ auth: { token, gameType } });
+        installResultsHold(socket);
         loadChat(socket);
         return socket;
+    }
+
+    // After a game ends, whoever presses the game's "back to lobby" button
+    // (restartGame) resets the room, but everyone else keeps their results on
+    // screen: their lobby updates are held back until they press it too.
+    // The lobby shows who is still looking at results.
+    function installResultsHold(sock) {
+        const handlers = [];
+        let last = null;        // last state the game saw
+        let pending = null;     // newest lobby state held back while looking at results
+        let holding = false;
+        let goingBack = false;  // this player asked to go back themselves
+        let viewers = [];
+        let banner = null;
+
+        const deliver = (state) => {
+            last = state;
+            handlers.forEach(h => h(state));
+            renderBanner();
+        };
+
+        const nameOf = (id) => {
+            const p = ((pending || last) && (pending || last).players || []).find(x => x.id === id);
+            return p ? p.name : '?';
+        };
+
+        function renderBanner() {
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.style.cssText = 'position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:940;max-width:min(560px,94vw);'
+                    + 'padding:6px 14px;border-radius:0 0 12px 12px;background:#3c2f2f;color:#fff;font-size:0.82rem;font-weight:700;'
+                    + 'text-align:center;box-shadow:0 4px 12px rgba(0,0,0,0.25);display:none;font-family:sans-serif;';
+                document.body.appendChild(banner);
+            }
+            const others = viewers.filter(id => id !== sock.id);
+            // On the results screen the note goes at the top; in the lobby at the bottom,
+            // clear of the lobby's header buttons
+            const place = (atTop) => {
+                banner.style.top = atTop ? '0' : 'auto';
+                banner.style.bottom = atTop ? 'auto' : '16px';
+                banner.style.borderRadius = atTop ? '0 0 12px 12px' : '12px';
+                banner.style.maxWidth = atTop ? 'min(560px,94vw)' : 'calc(100vw - 200px)';
+            };
+            if (holding) {
+                place(true);
+                banner.textContent = '🏠 其他人已經回到大廳了，你可以慢慢看結果；看完按「回大廳」就會過去。';
+            } else if (last && !last.gameStarted && others.length) {
+                place(false);
+                banner.textContent = `⏳ 還在看結果：${others.map(nameOf).join('、')}`;
+            } else {
+                banner.style.display = 'none';
+                return;
+            }
+            banner.style.display = 'block';
+        }
+
+        sock.on('roomUpdate', (state) => {
+            if (state.gameStarted) {
+                // A new game (or the same one) is on: always show it
+                holding = false;
+                pending = null;
+                goingBack = false;
+                deliver(state);
+                return;
+            }
+            if (holding) {
+                pending = state;
+                renderBanner();
+                return;
+            }
+            if (last && last.gameStarted && last.gameEnded && !goingBack) {
+                // Someone else went back to the lobby: keep showing the results
+                holding = true;
+                pending = state;
+                renderBanner();
+                return;
+            }
+            goingBack = false;
+            deliver(state);
+        });
+
+        sock.on('resultViewers', ({ ids } = {}) => {
+            viewers = Array.isArray(ids) ? ids : [];
+            // Reloaded the page while listed as looking at results: we are in the lobby now
+            if (!holding && last && !last.gameStarted && viewers.includes(sock.id)) sock.emit('lobby_back');
+            renderBanner();
+        });
+
+        // Games register their own roomUpdate handlers; route them through the hold
+        const originalOn = sock.on.bind(sock);
+        sock.on = (event, fn) => {
+            if (event === 'roomUpdate') {
+                handlers.push(fn);
+                return sock;
+            }
+            return originalOn(event, fn);
+        };
+
+        const originalEmit = sock.emit.bind(sock);
+        sock.emit = (event, ...args) => {
+            if (event === 'restartGame' && last && last.gameEnded) {
+                if (holding) {
+                    // The room is already back in the lobby: just go there
+                    holding = false;
+                    const state = pending;
+                    pending = null;
+                    originalEmit('lobby_back');
+                    if (state) deliver(state);
+                    return sock;
+                }
+                goingBack = true;
+            }
+            return originalEmit(event, ...args);
+        };
     }
 
     // Every game gets the room chat window (public/shared/chat.js)
