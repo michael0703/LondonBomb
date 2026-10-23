@@ -1,0 +1,27 @@
+// English for 數字猜猜我是誰 (Who Am I: Numbers). Loaded together with whoami.js,
+// which has everything the two editions share.
+BoardgameI18n.add({
+    '數字猜猜我是誰 | 桌遊入口': 'Who Am I: Numbers | Board Game Portal',
+    '🔢 數字猜猜我是誰 🔢': '🔢 Who Am I: Numbers 🔢',
+    '看得到別人的數字，卻看不到自己的': 'You can see everyone\'s number but your own',
+    '🔢 候場休息室 🔢': '🔢 Green Room 🔢',
+    '每個人隨機抽一個': 'Everyone draws a random',
+    '1–100 的數字': 'number from 1-100',
+    '（可能和別人重複）：你看得到別人的數字，': '(numbers may repeat): you can see everyone else\'s,',
+    '（例如「我是偶數嗎？」「我是 3 的倍數嗎？」「我的數字裡有 7 嗎？」），直到猜中或放棄才換下一位。': '(e.g. "Am I even?" "Am I a multiple of 3?" "Does my number contain a 7?") until you guess right or give up; then it\'s the next player\'s turn.',
+    '不能問大小或範圍': 'No questions about size or range',
+    '（例如「我比 50 大嗎？」「我在 20 到 40 之間嗎？」），不然就變成終極密碼了！回答的人也不能透露大小。': '(e.g. "Am I bigger than 50?" "Am I between 20 and 40?"), or it turns into a plain guess-the-number game! Answers mustn\'t give away size either.',
+    '系統自動判定': 'and the game checks it',
+    '對錯。猜測不算題數，但累計猜測次數最多只能是': 'automatically. Guesses don\'t count as questions, but your total guesses can be at most',
+    '想讓發問的人猜別的數字？其他人可以': 'Want the asker to guess a different number? The others can',
+    '🔢 你的數字：': '🔢 Your number:',
+    '👥 玩家與數字': '👥 Players and numbers',
+    '（他的數字是：': '(their number is:',
+    '例如：我是 3 的倍數嗎？（不能問大小）': 'e.g. Am I a multiple of 3? (no size questions)',
+    '覺得知道了？輸入你猜的數字': 'Think you know? Type your number',
+    '直接打答案，例如：是奇數，但不是質數': 'Type an answer, e.g. Odd, but not prime',
+    '想讓他猜哪個數字？': 'Which number should they be?',
+    '✏️ {0} 提議幫你換一個自訂的數字，大家投票中...（{1}）': '✏️ {0} proposed a custom number for you; everyone is voting... ({1})',
+    '✏️ {0} 提議把 {1} 的數字換成「{2}」：{3}': '✏️ {0} proposes changing {1}\'s number to "{2}": {3}',
+    '請輸入 1–100 的整數！': 'Please enter a whole number from 1 to 100!'
+});
