@@ -1586,3 +1586,72 @@ body {
 .ms-player.team-red .ms-name { color: #b03a2e; }
 
 .b9-card-table td:first-child { font-weight: 900; text-align: center; }
+
+/* A selected card always looks selected, even if playing it alone would bust */
+.b9-card.unsafe.selected { border-color: var(--color-gold); background: #fff6e3; transform: translateY(-4px); box-shadow: 0 4px 10px rgba(229, 176, 88, 0.45); }
+
+/* ================= Round table ================= */
+.b9-ring {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto 10px;
+}
+
+.b9-ring-track {
+    position: absolute;
+    inset: 12%;
+    border-radius: 50%;
+    border: 3px dashed var(--color-iron);
+    background: radial-gradient(circle, #fff 0%, #fbf3ea 100%);
+}
+
+.b9-ring-center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.b9-ring-center strong { font-size: 2.8rem; line-height: 1; color: var(--color-bad-red); font-weight: 900; }
+.b9-dir { font-weight: 800; color: var(--color-text-light); font-size: 0.9rem; }
+.b9-dir.reverse { color: #7b4fb0; }
+
+.b9-seat {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 82px;
+    padding: 5px 4px;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 2px solid var(--color-iron);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    font-size: 0.72rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    transition: transform 0.2s;
+}
+
+.b9-seat-name { font-weight: 800; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.b9-seat-info { color: var(--color-text-muted); }
+.b9-seat-tag { position: absolute; top: -11px; font-size: 0.62rem; font-weight: 800; padding: 1px 6px; border-radius: 8px; background: var(--color-gold); color: #2b2020; white-space: nowrap; }
+.b9-seat-tag.next { background: var(--color-iron); color: var(--color-text-light); }
+.b9-seat.me { border-color: #4f78b0; }
+.b9-seat.turn { border-color: var(--color-gold); background: #fff6e3; box-shadow: 0 0 0 4px var(--color-gold-glow); transform: translate(-50%, -50%) scale(1.08); z-index: 2; }
+.b9-seat.next { border-style: dashed; border-color: var(--color-copper); }
+.b9-seat.dead { opacity: 0.45; filter: grayscale(0.6); }
+.b9-seat.team-red .b9-seat-name { color: #b03a2e; }
+
+@media (max-width: 400px) {
+    .b9-seat { width: 72px; font-size: 0.66rem; }
+}

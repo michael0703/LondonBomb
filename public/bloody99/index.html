@@ -92,6 +92,8 @@
                         <li>分<strong>紅、黑兩隊</strong>（奇數時黑隊多一人），每個人只知道自己是哪一隊。</li>
                         <li>兩隊各有一位<strong>王</strong>，<strong>哪一隊的王先死，那一隊就輸</strong>。</li>
                         <li>手上沒牌的人立刻死亡。</li>
+                        <li><strong>可以合併出牌</strong>：好幾張牌的數字加起來 ≤ 13，就當成那張牌（例如 2+5 = 7）。</li>
+                        <li>死掉的人會<strong>公開隊伍</strong>。</li>
                     </ul>
                     <button class="btn btn-brass btn-help" type="button" data-open-help>
                         <span>📖 完整規則與功能牌</span>
@@ -114,10 +116,16 @@
                 <span id="role-card-desc" class="my-card-desc"></span>
             </button>
 
-            <div class="b9-total-box">
-                <div class="b9-side"><span>出牌方向</span><strong id="display-dir">➡️</strong></div>
-                <div class="b9-total"><span>目前點數</span><strong id="display-total">99</strong><span>超過 99 就死</span></div>
-                <div class="b9-side"><span>牌堆剩餘</span><strong id="display-deck">0</strong></div>
+            <!-- Round table: seats in seat order, you at the bottom -->
+            <div class="b9-ring">
+                <div class="b9-ring-track"></div>
+                <div class="b9-ring-center">
+                    <span>目前點數</span>
+                    <strong id="display-total">99</strong>
+                    <span id="display-dir" class="b9-dir">↻ 順時針</span>
+                    <span>牌堆 <b id="display-deck">0</b> 張</span>
+                </div>
+                <div id="ring-seats"></div>
             </div>
 
             <div id="last-play" class="b9-last">還沒有人出牌</div>
@@ -131,7 +139,7 @@
             </div>
 
             <div class="uc-section">
-                <h3>👥 玩家（照出牌順序）</h3>
+                <h3>👥 玩家詳細（照座位順序）</h3>
                 <ul id="players-list" class="ms-players"></ul>
             </div>
 
@@ -180,7 +188,8 @@
                 <summary>📋 遊戲流程</summary>
                 <ul class="help-list">
                     <li>每人 <strong>5 張</strong>手牌，桌上點數一開始就是 <strong>99</strong>。</li>
-                    <li>輪流出一張牌改變點數，出完<strong>補一張</strong>（出 A 或 7 不補）。牌堆抽完就不再補。</li>
+                    <li>輪流出牌改變點數，出完<strong>補一張</strong>（出 A 或 7 不補）。牌堆抽完時，把出過的牌（和死掉的人的牌）洗成新的牌堆。</li>
+                    <li><strong>可以合併出牌</strong>：好幾張牌的數字加起來 ≤ 13（A=1、J=11、Q=12、K=13），就當成那一張牌，連功能一起發動。例如 2+5 當成 7 跟人換手牌、6+4 當成 10。合併出牌也<strong>只補一張</strong>。</li>
                     <li>把點數加到<strong>超過 99</strong> 的人死亡。點數最低是 0，不會變負數。</li>
                     <li><strong>手上沒有牌的人立刻死亡</strong>（例如被拿 7 換到空手、最後一張被 A 抽走）。</li>
                     <li>有人死亡後，點數重設為 99，由下一位繼續。</li>
@@ -211,6 +220,7 @@
                     <li>每個人<strong>只知道自己是哪一隊</strong>，不知道別人是哪一隊。</li>
                     <li>兩隊各有一位<strong>王</strong>。房主可以選擇：公開兩個王、只公開黑隊的王，或兩個王都不公開。公開的王大家都知道他是誰、是哪一隊。</li>
                     <li><strong>哪一隊的王先死，那一隊就輸</strong>。一般隊員死掉不會輸，但會少一個幫手。</li>
+                    <li>有人死掉時，會<strong>公開他是哪一隊</strong>。</li>
                     <li>所以要想辦法讓對方的王爆掉，同時保護自己的王，又不能太明顯暴露自己是哪一隊。</li>
                 </ul>
             </details>

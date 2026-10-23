@@ -52,7 +52,7 @@ const RED_SUITS = ['♥', '♦'];
 let latestState = null;
 let roleShown = false;
 let modalDismissed = false;
-let selectedCardId = null;
+let selectedIds = [];
 let lastPlayCount = null;
 
 function switchView(name) {
@@ -190,20 +190,60 @@ function renderIdentity(state) {
 
 function renderBoard(state) {
     $('display-total').textContent = state.total;
-    $('display-dir').textContent = state.dir === 1 ? '➡️ 順' : '⬅️ 逆';
+    $('display-dir').textContent = state.dir === 1 ? '↻ 順時針' : '↺ 逆時針';
+    $('display-dir').classList.toggle('reverse', state.dir !== 1);
     $('display-deck').textContent = state.deckCount;
     const last = $('last-play');
     if (state.last) {
         const l = state.last;
         last.className = 'b9-last' + (l.bust ? ' bust' : '');
-        last.textContent = `${nameOf(state, l.by)} 出 ${cardName(l.card)}：${l.text}（${l.before} ➔ ${l.after}）${l.bust ? '💥 爆了！' : ''}`;
+        const shown = l.cards.length > 1 ? `${l.cards.map(cardName).join('+')}（當 ${rankName(l.rank)}）` : cardName(l.cards[0]);
+        last.textContent = `${nameOf(state, l.by)} 出 ${shown}：${l.text}（${l.before} ➔ ${l.after}）${l.bust ? '💥 爆了！' : ''}`;
     } else {
         last.className = 'b9-last';
         last.textContent = '還沒有人出牌';
     }
 }
 
+// Seats around a circle in seat order (clockwise), with you at the bottom
+function renderRing(state) {
+    const box = $('ring-seats');
+    box.innerHTML = '';
+    const seats = state.players;
+    const n = seats.length;
+    const myIdx = Math.max(0, seats.findIndex(p => p.id === socket.id));
+    // Next living player in the current direction, after whoever is on turn
+    let nextId = null;
+    const turnIdx = seats.findIndex(p => p.id === state.turnId);
+    if (turnIdx >= 0 && !state.gameEnded) {
+        for (let step = 1; step < n; step++) {
+            const p = seats[((turnIdx + step * state.dir) % n + n) % n];
+            if (!p.dead && !p.left) { nextId = p.id; break; }
+        }
+    }
+    const radius = n > 8 ? 41 : 39;
+    seats.forEach((p, i) => {
+        // 90° is the bottom; growing angles go clockwise on screen
+        const angle = (90 + ((i - myIdx + n) % n) * 360 / n) * Math.PI / 180;
+        const seat = el('div', 'b9-seat');
+        seat.style.left = `${50 + radius * Math.cos(angle)}%`;
+        seat.style.top = `${50 + radius * Math.sin(angle)}%`;
+        if (p.id === socket.id) seat.classList.add('me');
+        if (p.id === state.turnId && !state.gameEnded) seat.classList.add('turn');
+        if (p.id === nextId) seat.classList.add('next');
+        if (p.dead || p.left) seat.classList.add('dead');
+        if (p.team) seat.classList.add(`team-${p.team}`);
+        const marks = `${p.team ? (p.team === 'red' ? '🔴' : '⚫') : ''}${p.king ? '👑' : ''}`;
+        seat.appendChild(el('span', 'b9-seat-name', `${marks}${p.name}`));
+        seat.appendChild(el('span', 'b9-seat-info', p.dead ? '💀' : p.left ? '已離開' : `🂠 ${p.handCount}${p.connected ? '' : ' 📴'}`));
+        if (p.id === state.turnId && !state.gameEnded) seat.appendChild(el('span', 'b9-seat-tag', '出牌中'));
+        else if (p.id === nextId) seat.appendChild(el('span', 'b9-seat-tag next', '下一位'));
+        box.appendChild(seat);
+    });
+}
+
 function renderPlayers(state) {
+    renderRing(state);
     const list = $('players-list');
     list.innerHTML = '';
     state.players.forEach(p => {
@@ -258,19 +298,19 @@ function renderControls(state) {
         return `👉 輪到 ${current} 出牌`;
     }
 
-    hint(myTurn ? `👉 輪到你了！目前點數 ${state.total}，選一張牌：` : `⏳ 輪到 ${current} 出牌。這是你的手牌：`);
+    hint(myTurn ? `👉 輪到你了！目前點數 ${state.total}，選牌（可以選好幾張，加起來 ≤ 13 當成那張牌）：` : `⏳ 輪到 ${current} 出牌。這是你的手牌：`);
     const hand = el('div', 'b9-hand');
-    if (!my.hand.some(c => c.id === selectedCardId)) selectedCardId = null;
+    selectedIds = selectedIds.filter(id => my.hand.some(c => c.id === id));
     my.hand.forEach(c => {
         const btn = el('button', 'b9-card' + (RED_SUITS.includes(c.suit) ? ' red' : '')
-            + (c.id === selectedCardId ? ' selected' : '') + (myTurn && isUnsafe(state, c) ? ' unsafe' : ''));
+            + (selectedIds.includes(c.id) ? ' selected' : '') + (myTurn && isUnsafe(state, c) ? ' unsafe' : ''));
         btn.type = 'button';
         btn.appendChild(el('span', 'rank', cardName(c)));
         btn.appendChild(el('span', 'effect', effectOf(c.rank)));
         btn.disabled = !myTurn;
         btn.addEventListener('click', () => {
             AudioSynth.playTick();
-            selectedCardId = selectedCardId === c.id ? null : c.id;
+            selectedIds = selectedIds.includes(c.id) ? selectedIds.filter(id => id !== c.id) : [...selectedIds, c.id];
             rerender();
         });
         hand.appendChild(btn);
@@ -279,15 +319,22 @@ function renderControls(state) {
     if (!my.hand.length) hint('你手上沒有牌了。');
 
     if (myTurn && my.hand.length && my.hand.every(c => isUnsafe(state, c))) {
-        hint('😱 你手上每一張都會爆……隨便選一張出吧。');
+        hint('😱 你手上每一張單出都會爆……試試合併出牌，或隨便選一張吧。');
     }
 
-    const card = my.hand.find(c => c.id === selectedCardId);
-    if (myTurn && card) {
-        const play = (extra) => socket.emit('bloody99_play', { cardId: card.id, ...extra });
+    const chosen = my.hand.filter(c => selectedIds.includes(c.id));
+    if (myTurn && chosen.length) {
+        // Several cards count as one card of their summed rank
+        const rank = chosen.reduce((sum, c) => sum + c.rank, 0);
+        const label = chosen.length > 1 ? `${chosen.map(cardName).join('+')} = ${rankName(rank)}` : cardName(chosen[0]);
+        const play = (extra) => socket.emit('bloody99_play', { cardIds: chosen.map(c => c.id), ...extra });
         const others = state.players.filter(p => !p.dead && !p.left && p.id !== socket.id);
-        if (card.rank === 10 || card.rank === 12) {
-            const n = card.rank === 10 ? 10 : 20;
+        const handAfter = my.hand.length - chosen.length;
+        if (chosen.length > 1) hint(rank > 13 ? `${chosen.map(cardName).join('+')} = ${rank}，超過 13 不能出。` : `🃏 ${label}：${effectOf(rank)}`);
+        if (rank > 13) {
+            // nothing to play
+        } else if (rank === 10 || rank === 12) {
+            const n = rank === 10 ? 10 : 20;
             const row = el('div', 'action-row');
             row.appendChild(button(`➖ −${n}（變 ${Math.max(0, state.total - n)}）`, 'btn-gold', () => play({ sign: '-' })));
             const plus = button(`➕ +${n}（變 ${state.total + n}）`, 'btn-brass', () => {
@@ -296,25 +343,27 @@ function renderControls(state) {
             });
             row.appendChild(plus);
             panel.appendChild(row);
-        } else if (card.rank === 1) {
+        } else if (rank === 1) {
             hint('🫳 要抽誰的牌？（隨機抽一張，不能看）');
             panel.appendChild(targetGrid(state, others.filter(p => p.handCount > 0).map(p => p.id), id => play({ targetId: id })));
-        } else if (card.rank === 7) {
-            hint(my.hand.length === 1 ? '🔄 你只剩這張 7！換給誰，誰就拿到空手、立刻死亡：' : '🔄 要跟誰交換全部手牌？');
+        } else if (rank === 7) {
+            hint(handAfter === 0 ? `🔄 出完 ${label} 你就沒牌了！換給誰，誰就拿到空手、立刻死亡：` : '🔄 要跟誰交換全部手牌？');
             panel.appendChild(targetGrid(state, others.map(p => p.id), id => {
-                if (my.hand.length === 1 && !confirm(`${nameOf(state, id)} 會拿到空手並立刻死亡，確定嗎？`)) return;
+                if (handAfter === 0 && !confirm(`${nameOf(state, id)} 會拿到空手並立刻死亡，確定嗎？`)) return;
                 play({ targetId: id });
             }));
-        } else if (card.rank === 5) {
+        } else if (rank === 5) {
             hint('👉 指定誰下一個出牌？');
             panel.appendChild(targetGrid(state, others.map(p => p.id), id => play({ targetId: id })));
         } else {
-            const after = card.rank === 13 ? state.limit : [4, 11].includes(card.rank) ? state.total : state.total + card.rank;
-            panel.appendChild(button(`出 ${cardName(card)}（${effectOf(card.rank)}，點數變 ${after}）`, isUnsafe(state, card) ? 'btn-brass btn-wide' : 'btn-gold btn-wide', () => {
-                if (isUnsafe(state, card) && !confirm(`會變成 ${after}，你會爆掉死亡，確定嗎？`)) return;
+            const after = rank === 13 ? state.limit : [4, 11].includes(rank) ? state.total : state.total + rank;
+            const unsafe = isUnsafe(state, { rank });
+            panel.appendChild(button(`出 ${label}（${effectOf(rank)}，點數變 ${after}）`, unsafe ? 'btn-brass btn-wide' : 'btn-gold btn-wide', () => {
+                if (unsafe && !confirm(`會變成 ${after}，你會爆掉死亡，確定嗎？`)) return;
                 play({});
             }));
         }
+        if (chosen.length > 1) panel.appendChild(button('↩️ 取消選擇', 'btn-brass btn-small', () => { selectedIds = []; rerender(); }));
     }
 
     if (me && me.host && !myTurn) {
@@ -457,7 +506,7 @@ socket.on('roomUpdate', (state) => {
     if (!state.gameStarted) {
         roleShown = false;
         modalDismissed = false;
-        selectedCardId = null;
+        selectedIds = [];
         lastPlayCount = null;
         $('game-over-modal').classList.remove('active');
         switchView('waiting');

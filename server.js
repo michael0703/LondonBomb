@@ -5468,7 +5468,10 @@ io.on('connection', (socket) => {
 
 // ================= BLOODY 99 (血腥99) =================
 // 99 with teams. The total starts at 99; play a card, change the total, draw
-// one card (A and 7 draw nothing). Whoever pushes the total over 99 dies, and
+// one card (A and 7 draw nothing). Several cards can be played together as one
+// card whose rank is their sum (A=1 … K=13, at most 13): 2+5 is a 7. A combo
+// still draws only one card. When the deck runs out, the played cards (and
+// dead players' cards) are shuffled into a new deck. A dead player's team is shown. Whoever pushes the total over 99 dies, and
 // so does anyone whose hand ends up empty. Two hidden teams (red / black, black
 // gets the extra player) each have a king: the team whose king dies first loses.
 // The host picks which kings are public: both, only black's, or none;
@@ -5481,6 +5484,7 @@ io.on('connection', (socket) => {
 const B99_MIN_PLAYERS = 4;
 const B99_MAX_PLAYERS = 10;
 const B99_HAND = 5;
+const B99_MAX_COMBO = 13;
 const B99_LIMIT = 99;
 const B99_SUITS = ['♠', '♥', '♦', '♣'];
 const B99_RANK_NAMES = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
@@ -5522,8 +5526,8 @@ function resetBloody99Room(room) {
   room.b9Plays = [];
   room.b9Winner = null;
   room.b9Reason = '';
-  room.b9Discarded = 0;
-  room.b9Dumped = 0;
+  room.b9Discard = [];
+  room.b9Reshuffles = 0;
   room.players.forEach(p => {
     p.b9Hand = [];
     p.b9Team = null;
@@ -5599,8 +5603,8 @@ function b9Kill(room, p, reason) {
   if (p.b9Dead) return false;
   p.b9Dead = true;
   p.b9DeathReason = reason;
-  // A dead player's cards leave the game
-  room.b9Dumped = (room.b9Dumped || 0) + p.b9Hand.length;
+  // A dead player's cards go to the discard pile (they come back if the deck is reshuffled)
+  room.b9Discard.push(...p.b9Hand);
   p.b9Hand = [];
   room.b9Total = B99_LIMIT;
   addLog(room, 'death', `💀 ${p.name} ${reason}，死亡！點數重設為 ${B99_LIMIT}。`);
@@ -5625,22 +5629,38 @@ function b9KillEmptyHands(room) {
   return false;
 }
 
-// Plays a card for `player`; returns an error string, or null when done
-function b9Play(room, player, { cardId, sign, targetId } = {}) {
-  const idx = player.b9Hand.findIndex(c => c.id === cardId);
-  if (idx === -1) return '你手上沒有這張牌。';
-  const card = player.b9Hand[idx];
-  const target = targetId !== undefined ? b9Player(room, targetId) : null;
-  const needsTarget = card.rank === 1 || card.rank === 5 || card.rank === 7;
-  if (needsTarget && (!target || target.id === player.id || target.b9Dead || target.b9Left)) return '請選一位其他還活著的玩家。';
-  if (card.rank === 1 && target.b9Hand.length === 0) return '他手上沒有牌可以抽。';
-  if ((card.rank === 10 || card.rank === 12) && sign !== '+' && sign !== '-') return '請選加或減。';
+// Draw one card; reshuffle the discard pile into a new deck when the deck is empty
+function b9Draw(room, player) {
+  if (!room.b9Deck.length && room.b9Discard.length) {
+    room.b9Deck = shuffle(room.b9Discard);
+    room.b9Discard = [];
+    room.b9Reshuffles += 1;
+    addLog(room, 'system', `🔀 牌堆用完了，把出過的 ${room.b9Deck.length} 張牌洗成新的牌堆。`);
+  }
+  if (room.b9Deck.length) player.b9Hand.push(room.b9Deck.shift());
+}
 
-  player.b9Hand.splice(idx, 1);
+// Plays one card, or several cards as one card of their summed rank; returns
+// an error string, or null when done
+function b9Play(room, player, { cardIds, cardId, sign, targetId } = {}) {
+  const ids = Array.isArray(cardIds) ? cardIds : (cardId !== undefined ? [cardId] : []);
+  if (!ids.length || new Set(ids).size !== ids.length) return '請選要出的牌。';
+  const cards = ids.map(id => player.b9Hand.find(c => c.id === id));
+  if (cards.some(c => !c)) return '你手上沒有這張牌。';
+  const rank = cards.reduce((sum, c) => sum + c.rank, 0);
+  if (rank > B99_MAX_COMBO) return `合起來是 ${rank}，超過 ${B99_MAX_COMBO} 不能出。`;
+  const target = targetId !== undefined ? b9Player(room, targetId) : null;
+  const needsTarget = rank === 1 || rank === 5 || rank === 7;
+  if (needsTarget && (!target || target.id === player.id || target.b9Dead || target.b9Left)) return '請選一位其他還活著的玩家。';
+  if (rank === 1 && target.b9Hand.length === 0) return '他手上沒有牌可以抽。';
+  if ((rank === 10 || rank === 12) && sign !== '+' && sign !== '-') return '請選加或減。';
+
+  player.b9Hand = player.b9Hand.filter(c => !ids.includes(c.id));
+  room.b9Discard.push(...cards);
   const before = room.b9Total;
   let text = '';
   let nextId = null;
-  switch (card.rank) {
+  switch (rank) {
     case 1: {
       const taken = target.b9Hand.splice(Math.floor(Math.random() * target.b9Hand.length), 1)[0];
       player.b9Hand.push(taken);
@@ -5664,7 +5684,7 @@ function b9Play(room, player, { cardId, sign, targetId } = {}) {
     }
     case 10:
     case 12: {
-      const amount = card.rank === 10 ? 10 : 20;
+      const amount = rank === 10 ? 10 : 20;
       room.b9Total = Math.max(0, room.b9Total + (sign === '+' ? amount : -amount));
       text = `${sign === '+' ? '+' : '−'}${amount}`;
       break;
@@ -5677,14 +5697,15 @@ function b9Play(room, player, { cardId, sign, targetId } = {}) {
       text = `點數直接變成 ${B99_LIMIT}`;
       break;
     default:
-      room.b9Total += card.rank;
-      text = `+${card.rank}`;
+      room.b9Total += rank;
+      text = `+${rank}`;
   }
-  const entry = { by: player.id, card: { suit: card.suit, rank: card.rank }, text, before, after: room.b9Total, targetId: target ? target.id : null };
+  const played = cards.map(c => ({ suit: c.suit, rank: c.rank }));
+  const entry = { by: player.id, cards: played, rank, text, before, after: room.b9Total, targetId: target ? target.id : null };
   room.b9Last = entry;
   room.b9Plays.push(entry);
-  room.b9Discarded = (room.b9Discarded || 0) + 1;
-  addLog(room, 'play', `🃏 ${player.name} 出了 ${b9CardName(card)}：${text}（點數 ${before} ➔ ${room.b9Total}）`);
+  const label = cards.length > 1 ? `${cards.map(b9CardName).join('+')}（當 ${B99_RANK_NAMES[rank] || rank}）` : b9CardName(cards[0]);
+  addLog(room, 'play', `🃏 ${player.name} 出了 ${label}：${text}（點數 ${before} ➔ ${room.b9Total}）`);
 
   // Bust: the player who went over dies, the next seat continues
   if (room.b9Total > B99_LIMIT) {
@@ -5695,8 +5716,10 @@ function b9Play(room, player, { cardId, sign, targetId } = {}) {
     return null;
   }
 
-  // Draw back up (A and 7 draw nothing)
-  if (card.rank !== 1 && card.rank !== 7 && room.b9Deck.length) player.b9Hand.push(room.b9Deck.shift());
+  // Draw one card, even after a combo (an A or a 7 draws nothing)
+  const reshufflesBefore = room.b9Reshuffles;
+  if (rank !== 1 && rank !== 7) b9Draw(room, player);
+  entry.reshuffled = room.b9Reshuffles !== reshufflesBefore;
 
   const next = nextId ? b9Player(room, nextId) : b9NextAlive(room, player.id);
   if (b9KillEmptyHands(room)) return null;
@@ -5709,7 +5732,8 @@ function getBloody99RoomState(room, socketId) {
   const setup = getBloody99Setup(room);
   const reveal = room.gameEnded;
   const players = room.players.map(p => {
-    const kingKnown = reveal || p.id === socketId || b9KingPublic(room, p);
+    // A dead player's team is revealed
+    const kingKnown = reveal || p.id === socketId || b9KingPublic(room, p) || !!p.b9Dead;
     return {
       id: p.id,
       name: p.name,
@@ -5721,7 +5745,7 @@ function getBloody99RoomState(room, socketId) {
       deathReason: p.b9DeathReason || null,
       handCount: (p.b9Hand || []).length,
       king: kingKnown ? !!p.b9King : null,
-      team: kingKnown && (reveal || p.id === socketId || p.b9King) ? p.b9Team : null
+      team: kingKnown && (reveal || p.id === socketId || p.b9King || p.b9Dead) ? p.b9Team : null
     };
   });
   return {
@@ -5736,7 +5760,8 @@ function getBloody99RoomState(room, socketId) {
     dir: room.b9Dir || 1,
     turnId: room.b9TurnId || null,
     deckCount: (room.b9Deck || []).length,
-    cardStats: { total: room.b9CardTotal || 0, played: room.b9Discarded || 0, dumped: room.b9Dumped || 0 },
+    discardCount: (room.b9Discard || []).length,
+    cardStats: { total: room.b9CardTotal || 0, discard: (room.b9Discard || []).length, reshuffles: room.b9Reshuffles || 0 },
     decks: room.b9Decks || setup.decks,
     kingsReveal: room.gameStarted ? room.b9KingsReveal : setup.kingsReveal,
     last: room.b9Last || null,

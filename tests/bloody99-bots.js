@@ -1,6 +1,7 @@
 // Random-bot stress test for 血腥99: plays many games over real sockets and
 // checks every play against the rules (totals, busts, drawing, A / 7, empty
-// hands, turn order, card conservation), plus teams, kings and the winner.
+// hands, turn order, combined plays, reshuffling, card conservation), plus
+// teams (revealed on death), kings and the winner.
 // Usage: npm run test:bloody99 [-- <games>]   (needs Node 22+ for the global WebSocket)
 const fs = require('fs');
 const vm = require('vm');
@@ -19,9 +20,10 @@ const io = sandbox.io;
 
 const rnd = (n) => Math.floor(Math.random() * n);
 const pick = (a) => a[rnd(a.length)];
+const shuffled = (a) => [...a].sort(() => Math.random() - 0.5);
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
 const failures = [];
-const stats = { red: 0, black: 0, plays: 0, busts: 0, emptyDeaths: 0, sevenKills: 0, rounds: [] };
+const stats = { red: 0, black: 0, plays: 0, busts: 0, emptyDeaths: 0, sevenKills: 0, combos: 0, reshuffles: 0, rounds: [] };
 const fail = (g, msg) => failures.push(`[game ${g}] ${msg}`);
 
 function connect() {
@@ -36,11 +38,20 @@ function chooseAction(st, me) {
   const hand = st.my.hand;
   const others = st.players.filter(p => !p.dead && !p.left && p.id !== me);
   const safe = hand.filter(c => ![2, 3, 6, 8, 9].includes(c.rank) || st.total + c.rank <= LIMIT);
+  // Now and then combine 2-3 cards whose ranks add up to 13 or less
+  if (hand.length >= 2 && Math.random() < 0.3) {
+    const combo = shuffled(hand).slice(0, 2 + rnd(Math.min(2, hand.length - 1)));
+    const rank = combo.reduce((sum, c) => sum + c.rank, 0);
+    if (rank <= 13) return withTarget({ cardIds: combo.map(c => c.id) }, rank, st, others);
+  }
   const card = safe.length && Math.random() < 0.9 ? pick(safe) : pick(hand);
-  const action = { cardId: card.id };
-  if (card.rank === 10 || card.rank === 12) action.sign = st.total + (card.rank === 10 ? 10 : 20) <= LIMIT && Math.random() < 0.5 ? '+' : '-';
-  if (card.rank === 1) action.targetId = pick(others.filter(p => p.handCount > 0) .concat(others)).id;
-  if (card.rank === 5 || card.rank === 7) action.targetId = pick(others).id;
+  return withTarget({ cardId: card.id }, card.rank, st, others);
+}
+
+function withTarget(action, rank, st, others) {
+  if (rank === 10 || rank === 12) action.sign = st.total + (rank === 10 ? 10 : 20) <= LIMIT && Math.random() < 0.5 ? '+' : '-';
+  if (rank === 1) action.targetId = pick(others.filter(p => p.handCount > 0).concat(others)).id;
+  if (rank === 5 || rank === 7) action.targetId = pick(others).id;
   return action;
 }
 
@@ -48,7 +59,12 @@ function checkPlay(g, prev, st) {
   const e = st.last;
   const actorPrev = prev.players.find(p => p.id === e.by);
   const actorNow = st.players.find(p => p.id === e.by);
-  const r = e.card.rank;
+  const r = e.rank;
+  const k = e.cards.length;
+  if (e.cards.reduce((sum, c) => sum + c.rank, 0) !== r) fail(g, `combo ranks don't add up to ${r}`);
+  if (r > 13) fail(g, `combo of ${r} was allowed`);
+  if (k > 1) stats.combos++;
+  if (e.reshuffled) stats.reshuffles++;
   const seats = st.players;
   stats.plays++;
   if (prev.turnId !== e.by) fail(g, `${actorPrev.name} played out of turn (turn was ${prev.turnId})`);
@@ -73,18 +89,20 @@ function checkPlay(g, prev, st) {
     const targetPrev = e.targetId ? prev.players.find(p => p.id === e.targetId) : null;
     if (r === 1) {
       if (prev.deckCount !== st.deckCount) fail(g, 'A drew from the deck');
-      if (!actorNow.dead && actorNow.handCount !== actorPrev.handCount) fail(g, `A: hand ${actorPrev.handCount} -> ${actorNow.handCount}`);
+      if (!actorNow.dead && actorNow.handCount !== actorPrev.handCount - k + 1) fail(g, `A: hand ${actorPrev.handCount} -> ${actorNow.handCount}`);
       if (!target.dead && target.handCount !== targetPrev.handCount - 1) fail(g, `A: target hand ${targetPrev.handCount} -> ${target.handCount}`);
       if (targetPrev.handCount === 1 && !target.dead) fail(g, 'A took the last card but the target lives');
     } else if (r === 7) {
       if (prev.deckCount !== st.deckCount) fail(g, '7 drew from the deck');
       if (!actorNow.dead && actorNow.handCount !== targetPrev.handCount) fail(g, `7: actor now ${actorNow.handCount}, target had ${targetPrev.handCount}`);
-      if (!target.dead && target.handCount !== actorPrev.handCount - 1) fail(g, `7: target now ${target.handCount}, actor had ${actorPrev.handCount}`);
-      if (actorPrev.handCount === 1) { if (!target.dead) fail(g, 'empty-hand 7 did not kill'); else stats.sevenKills++; }
-    } else if (prev.deckCount > 0) {
-      if (st.deckCount !== prev.deckCount - 1) fail(g, `deck ${prev.deckCount} -> ${st.deckCount} on rank ${r}`);
-      if (!actorNow.dead && actorNow.handCount !== actorPrev.handCount) fail(g, `rank ${r}: hand ${actorPrev.handCount} -> ${actorNow.handCount}`);
-    } else if (!actorNow.dead && actorNow.handCount !== actorPrev.handCount - 1) fail(g, `rank ${r} with empty deck: hand ${actorPrev.handCount} -> ${actorNow.handCount}`);
+      if (!target.dead && target.handCount !== actorPrev.handCount - k) fail(g, `7: target now ${target.handCount}, actor had ${actorPrev.handCount} and played ${k}`);
+      if (actorPrev.handCount === k) { if (!target.dead) fail(g, 'empty-hand 7 did not kill'); else stats.sevenKills++; }
+    } else {
+      // Everything else draws exactly one card, reshuffling the played cards if the deck is empty
+      if (!e.reshuffled && st.deckCount !== prev.deckCount - 1) fail(g, `deck ${prev.deckCount} -> ${st.deckCount} on rank ${r}`);
+      if (e.reshuffled && prev.deckCount !== 0) fail(g, `reshuffled with ${prev.deckCount} cards still in the deck`);
+      if (!actorNow.dead && actorNow.handCount !== actorPrev.handCount - k + 1) fail(g, `rank ${r} (${k} cards): hand ${actorPrev.handCount} -> ${actorNow.handCount}`);
+    }
   }
   // Nobody alive has an empty hand; every death resets the total
   st.players.filter(p => !p.dead && !p.left).forEach(p => { if (p.handCount === 0) fail(g, `${p.name} alive with 0 cards`); });
@@ -94,7 +112,9 @@ function checkPlay(g, prev, st) {
   // Card conservation
   const inHands = st.players.reduce((s, p) => s + (p.dead ? 0 : p.handCount), 0);
   const c = st.cardStats;
-  if (st.deckCount + inHands + c.played + c.dumped !== c.total) fail(g, `cards: deck ${st.deckCount} + hands ${inHands} + played ${c.played} + dumped ${c.dumped} != ${c.total}`);
+  if (st.deckCount + inHands + c.discard !== c.total) fail(g, `cards: deck ${st.deckCount} + hands ${inHands} + discard ${c.discard} != ${c.total}`);
+  // A dead player's team is visible to everyone
+  st.players.filter(p => p.dead).forEach(p => { if (!p.team) fail(g, `${p.name} is dead but their team is hidden`); });
 
   // Turn order
   if (!st.gameEnded) {
@@ -141,8 +161,8 @@ async function playGame(g) {
         if (!st.gameEnded) st.players.forEach(p => {
           if (p.id === b.s.id) return;
           // Only public kings show a king flag (always true) and their team; everyone else is unknown
-          if (p.king !== null && !(p.king === true && (kingsReveal === 'both' || (kingsReveal === 'black' && p.team === 'black')))) fail(g, `observer sees ${p.name}'s king flag (${kingsReveal})`);
-          if (p.team && p.king !== true) fail(g, `observer sees ${p.name}'s team`);
+          if (!p.dead && p.king !== null && !(p.king === true && (kingsReveal === 'both' || (kingsReveal === 'black' && p.team === 'black')))) fail(g, `observer sees ${p.name}'s king flag (${kingsReveal})`);
+          if (p.team && p.king !== true && !p.dead) fail(g, `observer sees ${p.name}'s team`);
         });
         prev = st;
       }
@@ -210,7 +230,7 @@ function startServer() {
     server.kill();
   }
   console.log(`${GAMES} games, ${failures.length} failures`);
-  console.log(`winners: red ${stats.red}, black ${stats.black}; ${stats.plays} plays checked, ${stats.busts} busts, ${stats.emptyDeaths} empty-hand deaths (${stats.sevenKills} by an empty-hand 7)`);
+  console.log(`winners: red ${stats.red}, black ${stats.black}; ${stats.plays} plays checked, ${stats.combos} combos, ${stats.reshuffles} reshuffles, ${stats.busts} busts, ${stats.emptyDeaths} empty-hand deaths (${stats.sevenKills} by an empty-hand 7)`);
   console.log(`plays per game: avg ${(stats.rounds.reduce((a, b) => a + b, 0) / Math.max(1, stats.rounds.length)).toFixed(1)}, max ${Math.max(0, ...stats.rounds)}`);
   failures.slice(0, 30).forEach(f => console.log(f));
   process.exit(failures.length ? 1 : 0);
