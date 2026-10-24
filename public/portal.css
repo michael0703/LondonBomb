@@ -11,12 +11,49 @@
     --color-copper-glow: rgba(184, 115, 51, 0.4);
     
     --color-text-light: #f5eedc;
+    --text-rgb: 245, 238, 220;
+    --body-bg: radial-gradient(circle at center, #1b130e 0%, #0b0705 100%);
+    --card-bg: radial-gradient(circle at center, #261e17 0%, #15110e 100%);
+    --shade-rgb: 0, 0, 0;
     --color-text-dark: #1e130b;
     
     --font-heading: 'Outfit', 'Noto Sans TC', sans-serif;
     --font-heading-decor: 'Cinzel Decorative', 'Noto Sans TC', serif;
     --font-body: 'Outfit', 'Noto Sans TC', sans-serif;
     --font-mono: 'Courier New', Courier, monospace;
+}
+
+/* Light mode (toggled by the button at the top right, saved in localStorage) */
+:root[data-theme="light"] {
+    --color-text-light: #3a2a1c;
+    --text-rgb: 58, 42, 28;
+    --body-bg: radial-gradient(circle at center, #fbf5e6 0%, #e9dcc0 100%);
+    --card-bg: radial-gradient(circle at center, #fffaf0 0%, #f1e5c9 100%);
+    --shade-rgb: 90, 60, 30;
+    --color-gold: #a67c00;
+    --color-gold-glow: rgba(166, 124, 0, 0.3);
+}
+
+:root[data-theme="light"] .portal-title { text-shadow: 0 0 8px var(--color-gold-glow), 2px 2px 0 rgba(139, 90, 43, 0.35); }
+:root[data-theme="light"] .game-card { box-shadow: 0 8px 18px rgba(90, 60, 30, 0.25), inset 0 0 12px rgba(139, 90, 43, 0.12); }
+:root[data-theme="light"] .player-count-badge,
+:root[data-theme="light"] .card-status { background: rgba(139, 90, 43, 0.12); }
+:root[data-theme="light"] .status-active { color: #1e8e3e; }
+
+.theme-toggle {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 950;
+    padding: 8px 12px;
+    border-radius: 20px;
+    border: 2px solid var(--color-bronze);
+    background: var(--card-bg);
+    color: var(--color-text-light);
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
 }
 
 * {
@@ -26,7 +63,7 @@
 }
 
 body {
-    background: radial-gradient(circle at center, #1b130e 0%, #0b0705 100%);
+    background: var(--body-bg);
     color: var(--color-text-light);
     font-family: var(--font-body);
     min-height: 100vh;
@@ -136,7 +173,7 @@ body {
 
 .portal-subtitle {
     font-size: 0.95rem;
-    color: rgba(245, 238, 220, 0.6);
+    color: rgba(var(--text-rgb), 0.6);
     letter-spacing: 2px;
     font-family: var(--font-heading);
     text-transform: uppercase;
@@ -177,7 +214,7 @@ body {
 
 /* GAME CARD */
 .game-card {
-    background: radial-gradient(circle at center, #261e17 0%, #15110e 100%);
+    background: var(--card-bg);
     border: 3px double var(--color-bronze);
     border-radius: 12px;
     padding: 30px 25px;
@@ -234,7 +271,7 @@ body {
 }
 
 .status-locked {
-    color: rgba(245,238,220,0.4);
+    color: rgba(var(--text-rgb), 0.4);
     border-color: rgba(139, 90, 43, 0.2);
 }
 
@@ -277,7 +314,7 @@ body {
 
 .card-subtitle {
     font-size: 0.75rem;
-    color: rgba(245, 238, 220, 0.4);
+    color: rgba(var(--text-rgb), 0.4);
     text-transform: uppercase;
     letter-spacing: 1px;
     margin-bottom: 15px;
@@ -286,7 +323,7 @@ body {
 
 .card-desc {
     font-size: 0.85rem;
-    color: rgba(245, 238, 220, 0.75);
+    color: rgba(var(--text-rgb), 0.75);
     line-height: 1.6;
     margin-bottom: 25px;
 }
@@ -302,7 +339,7 @@ body {
 
 .player-count-badge {
     font-size: 0.75rem;
-    color: rgba(245,238,220,0.5);
+    color: rgba(var(--text-rgb), 0.5);
     background: rgba(0,0,0,0.3);
     padding: 3px 8px;
     border-radius: 12px;
@@ -421,7 +458,7 @@ body {
 
 .portal-footer-info p {
     font-size: 0.72rem;
-    color: rgba(245,238,220,0.3);
+    color: rgba(var(--text-rgb), 0.3);
     font-family: var(--font-mono);
     letter-spacing: 1px;
 }

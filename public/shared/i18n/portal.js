@@ -4,6 +4,8 @@ BoardgameI18n.add({
     '請選擇桌遊進入遊戲': 'Pick a game to play',
     '🟢 運作中': '🟢 Online',
     '進入遊戲': 'Play',
+    '☀️ 亮色模式': '☀️ Light mode',
+    '🌙 暗色模式': '🌙 Dark mode',
     '大偵探與莫里亞蒂的世紀對決！拆除引線，或是暗中引爆炸彈，展開一場驚心動魄的心理戰。': 'Sherlock versus Moriarty! Defuse the wires, or secretly set off the bomb, in a tense game of bluffing.',
     '吹牛與心理戰的極致對決！放置鮮花或骷髏，發起競標並看穿對手的謊言，考驗你的風險控制與讀心術。': 'The ultimate bluffing game! Play flowers or a skull, bid, and see through your rivals\' lies. A test of nerve and mind reading.',
     '全體合作的默契大考驗！根據秘密數字 (1-10) 的強度給出妙趣橫生的回答，考驗隊長能否將所有回答由小到大完美排序！': 'A cooperative test of teamwork! Answer a topic according to your secret number (1-10), and the captain must put every answer in order from lowest to highest!',
