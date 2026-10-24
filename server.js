@@ -16,6 +16,9 @@ const PORT = process.env.PORT || 3000;
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Bug reports / feature requests from the site become GitHub issues (report.js)
+require('./report').setupReports(app, express);
+
 // Global state for rooms
 const rooms = new Map();
 

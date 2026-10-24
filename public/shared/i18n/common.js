@@ -190,5 +190,30 @@ BoardgameI18n.add({
     // Going back to the lobby one by one
     "🏠 其他人已經回到大廳了，你可以慢慢看結果；看完按「回大廳」就會過去。": "🏠 The others went back to the lobby. Take your time with the results; press \"back to lobby\" when you're done.",
     "⏳ 還在看結果：{0}": "⏳ Still looking at the results: {0}",
-    "🏠 {0} 回到大廳了，其他人可以看完結果再回來。": "🏠 {0} went back to the lobby. Everyone else can come back after looking at the results."
+    "🏠 {0} 回到大廳了，其他人可以看完結果再回來。": "🏠 {0} went back to the lobby. Everyone else can come back after looking at the results.",
+    // Report button
+    "🐞 回報": "🐞 Report",
+    "🐞 回報問題 / 💡 提出想要的功能": "🐞 Report a bug / 💡 Request a feature",
+    "送出後會在 GitHub 開一則 issue，大家都看得到。有 GitHub 帳號的朋友可以去按 👍 支持。": "This opens a public GitHub issue. Friends with a GitHub account can give it a 👍 to support it.",
+    "🐞 有 Bug": "🐞 Bug",
+    "💡 想要的功能": "💡 Feature",
+    "標題": "Title",
+    "詳細說明": "Details",
+    "你的名字（選填）": "Your name (optional)",
+    "關閉": "Close",
+    "例如：投票後畫面卡住": "e.g. The screen froze after voting",
+    "例如：希望可以設定回合時間": "e.g. Let us set a time limit per round",
+    "發生了什麼？你做了哪些步驟？本來應該怎樣？": "What happened? What did you do? What should have happened?",
+    "想要什麼功能？在什麼情況下會用到？": "What would you like? When would you use it?",
+    "回報功能還沒設定好（伺服器缺少 GitHub token），請先直接跟房主說。": "Reporting isn't set up yet (the server has no GitHub token). Please tell the host directly for now.",
+    "請寫一個標題。": "Please write a title.",
+    "請多描述一點細節。": "Please add a few more details.",
+    "送出中…": "Sending…",
+    "送出失敗，請稍後再試。": "Sending failed. Please try again later.",
+    "✅ 送出了，謝謝！可以在這裡看到（有 GitHub 帳號可以按 👍）：": "✅ Sent, thanks! You can see it here (👍 it if you have a GitHub account):",
+    "連不上伺服器，請稍後再試。": "Can't reach the server. Please try again later.",
+    "回報功能還沒設定好（伺服器缺少 GitHub token）。": "Reporting isn't set up yet (the server has no GitHub token).",
+    "請選擇類型。": "Please choose a type.",
+    "送出太多次了，請稍後再試。": "Too many reports. Please try again later.",
+    "送到 GitHub 失敗了，請稍後再試。": "Sending to GitHub failed. Please try again later."
 });

@@ -3,11 +3,15 @@
 // (?room=ABCD) and a proper "leave room" when exiting to the portal.
 // Load this before the game's app.js.
 
-// Every page that loads this also gets the 中文 / EN switch
+// Every page that loads this also gets the 中文 / EN switch…
 (() => {
     const s = document.createElement('script');
     s.src = '/shared/i18n.js';
     document.head.appendChild(s);
+    // …and the 🐞 report button
+    const r = document.createElement('script');
+    r.src = '/shared/report.js';
+    document.head.appendChild(r);
 })();
 
 window.BoardgameSession = (() => {
