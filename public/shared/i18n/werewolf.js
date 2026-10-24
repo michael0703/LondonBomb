@@ -124,6 +124,7 @@ BoardgameI18n.add({
     '{0} 人': '{0} players',
     '🂠 中間第 {0} 張': '🂠 Middle card {0}',
     '🌙 你已完成夜晚行動，等待其他人…（{0}/{1}）': '🌙 Night action done, waiting for the others… ({0}/{1})',
+    '⏳ 還沒完成夜晚行動：{0}': '⏳ Haven\'t finished their night action: {0}',
     '點上面的身分卡可以再看一次你的情報。': 'Tap your role card above to see what you learned again.',
     '🌙 天黑了！先點上面的卡片看你的身分（小心別被旁邊的人看到）。': '🌙 Night falls! Tap the card above to see your role (don\'t let your neighbours see).',
     '🐺 你是唯一的狼人，可以偷看中間 1 張牌：': '🐺 You are the only werewolf. You may look at 1 middle card:',

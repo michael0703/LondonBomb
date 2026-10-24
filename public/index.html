@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="portal.css">
     <script>
-        try { if (localStorage.getItem('portal_theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}
+        try { var t = localStorage.getItem('portal_theme'); var h = new Date().getHours(); if (t === 'light' || (t !== 'dark' && h >= 6 && h < 18)) document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}
     </script>
 </head>
 <body>
