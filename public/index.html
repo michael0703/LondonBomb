@@ -8,8 +8,12 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="portal.css">
+    <script>
+        try { if (localStorage.getItem('portal_theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}
+    </script>
 </head>
 <body>
+    <button class="theme-toggle" id="theme-toggle" type="button">☀️ 亮色模式</button>
     <!-- Background Steam particles canvas -->
     <canvas id="steam-canvas"></canvas>
 
