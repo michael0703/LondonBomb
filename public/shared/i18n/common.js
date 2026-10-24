@@ -26,6 +26,23 @@ BoardgameI18n.add({
     '你': 'You',
     '💬 聊天室（{0}）': '💬 Chat ({0})',
 
+    // Round table
+    '圓桌': 'Round table',
+    '點一個表情或句子，大家會在你的座位旁看到': 'Tap an emoji or phrase and everyone sees it by your seat',
+    '太快了，{0} 秒後再試': 'Too fast, try again in {0}s',
+    '你很可疑喔！': 'You look suspicious!',
+    '我是好人，相信我！': 'I am a good guy, trust me!',
+    '快點啦～': 'Hurry up~',
+    '別看我，我什麼都沒做': 'Do not look at me, I did nothing',
+    '這局我贏定了': 'I am winning this one',
+    '哈哈，被我抓到了吧': 'Ha, caught you!',
+    '你在騙人對不對？': 'You are lying, right?',
+    '我懂了，是你！': 'I get it, it is you!',
+    '再給我一次機會': 'Give me one more chance',
+    '好啦好啦，你最強': 'Okay okay, you are the best',
+    '乾杯！': 'Cheers!',
+    '我要認真了': 'I am getting serious',
+
     // Language button / invite link
     'Language / 語言': 'Language',
     '🌐 中文': '🌐 中文',
