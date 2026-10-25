@@ -590,8 +590,8 @@ function renderGameBoard(state, me) {
         displays.finalScoresList.innerHTML = '';
         state.players.forEach(p => {
             const li = document.createElement('li');
-            li.innerHTML = `<span>${p.name} ${p.isBot ? '(AI)' : ''}</span> 
-                            <span>數字: <strong>${p.cardNumber}</strong>, 描述: "${p.answerText}"</span>`;
+            li.innerHTML = `<span>${escapeHTML(p.name)} ${p.isBot ? '(AI)' : ''}</span>
+                            <span>數字: <strong>${p.cardNumber}</strong>, 描述: "${escapeHTML(p.answerText)}"</span>`;
             displays.finalScoresList.appendChild(li);
         });
         
@@ -742,6 +742,17 @@ socket.on('kicked', () => {
     showError('你已被工坊主剔除出房間。');
     switchView('login');
 });
+// Player names and other typed text must not be read as HTML
+function escapeHTML(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 window.addEventListener('load', () => {
     SteamCanvas.init();
     initSocketAndEvents();

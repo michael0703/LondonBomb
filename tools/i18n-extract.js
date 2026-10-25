@@ -17,12 +17,12 @@ if (!page) {
 
 // Which part of server.js belongs to which dictionary
 const SERVER_SECTIONS = [
-  ['common', 1, 1710], ['skull', 1711, 2337], ['topten', 2338, 2502], ['whoami', 2503, 2986],
+  ['common', 1, 1710], ['topten', 2338, 2502], ['whoami', 2503, 2986],
   ['undercover', 2987, 3407], ['mascarade', 3408, 4088], ['werewolf', 4089, 4534], ['decrypto', 4535, 4923],
   ['avalon', 4924, 5383], ['common', 5384, 5421], ['bloody99', 5422, Infinity]
 ];
 // Section starts are found by their headers so the line numbers above can drift
-const SECTION_HEADERS = { skull: 'SKULL (骷髏牌) GAME LOGIC', topten: 'TOPTEN (天才猜心王)', whoami: 'WHOAMI (名人猜猜我是誰)', undercover: 'UNDERCOVER (誰是臥底)', mascarade: 'MASCARADE (化裝舞會)', werewolf: 'ONE NIGHT WEREWOLF', decrypto: 'DECRYPTO (截碼戰)', avalon: 'AVALON (阿瓦隆)', chat: 'ROOM CHAT (every game)', bloody99: 'BLOODY 99 (血腥99)' };
+const SECTION_HEADERS = { topten: 'TOPTEN (天才猜心王)', whoami: 'WHOAMI (名人猜猜我是誰)', undercover: 'UNDERCOVER (誰是臥底)', mascarade: 'MASCARADE (化裝舞會)', werewolf: 'ONE NIGHT WEREWOLF', decrypto: 'DECRYPTO (截碼戰)', avalon: 'AVALON (阿瓦隆)', chat: 'ROOM CHAT (every game)', bloody99: 'BLOODY 99 (血腥99)' };
 
 function serverSections() {
   const lines = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8').split(/\r?\n/);

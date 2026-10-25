@@ -7,7 +7,6 @@ BoardgameI18n.add({
     '☀️ 亮色模式': '☀️ Light mode',
     '🌙 暗色模式': '🌙 Dark mode',
     '大偵探與莫里亞蒂的世紀對決！拆除引線，或是暗中引爆炸彈，展開一場驚心動魄的心理戰。': 'Sherlock versus Moriarty! Defuse the wires, or secretly set off the bomb, in a tense game of bluffing.',
-    '吹牛與心理戰的極致對決！放置鮮花或骷髏，發起競標並看穿對手的謊言，考驗你的風險控制與讀心術。': 'The ultimate bluffing game! Play flowers or a skull, bid, and see through your rivals\' lies. A test of nerve and mind reading.',
     '全體合作的默契大考驗！根據秘密數字 (1-10) 的強度給出妙趣橫生的回答，考驗隊長能否將所有回答由小到大完美排序！': 'A cooperative test of teamwork! Answer a topic according to your secret number (1-10), and the captain must put every answer in order from lowest to highest!',
     '點數從 99 開始，誰爆誰死！紅黑兩隊各有一位王，用抽牌、換手牌、指定下家把對方的王逼爆，同時保護自己的王。': 'The total starts at 99 and whoever busts dies! Red and black teams each have a king. Steal cards, swap hands and pick who goes next to make the other king bust, while keeping yours alive.',
     '好人與壞人的陣營推理！隊長提名、全員投票、隊員暗中出任務卡。好人完成 3 個任務後，刺客還有一次刺殺梅林的機會。': 'Good versus evil! The leader picks a team, everyone votes, and the team secretly plays quest cards. If good completes 3 quests, the assassin still gets one shot at Merlin.',

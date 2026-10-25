@@ -4,7 +4,6 @@
 BoardgameI18n.add({
     // Game names (used all over)
     '驚爆倫敦': 'Time Bomb',
-    '骷髏牌': 'Skull',
     '天才猜心王': 'Top Ten',
     '血腥99': 'Bloody 99',
     '阿瓦隆': 'Avalon',
@@ -175,10 +174,6 @@ BoardgameI18n.add({
     '只有房主才能點擊顯示結算報告。': 'Only the host can show the final report.',
     '房主揭曉了最終任務結算報告。': 'The host revealed the final report.',
     '{0} 宣告手牌含有成功引線：✅ {1}': '{0} declares {1} defusing wire(s): ✅ {1}',
-
-    // 骷髏牌 start messages (in the shared part of the server)
-    '💀 骷髏牌對局開始！每位探員分發 3張鮮花牌 與 1張骷髏牌。': '💀 Skull begins! Everyone gets 3 flower cards and 1 skull card.',
-    '起始玩家為：{0}。出牌階段開始！': '{0} goes first. Place your cards!',
 
     // 天才猜心王 messages (in the shared part of the server)
     '目前不是回答階段。': 'It is not the answering phase.',
