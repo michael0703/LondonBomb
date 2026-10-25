@@ -1453,3 +1453,12 @@ body {
     .logo-text { font-size: 1.8rem; }
     .lobby-columns { grid-template-columns: 1fr; }
 }
+
+/* Game screen: info on the sides, round table in the middle (stacked on phones) */
+.wf-layout { display: flex; flex-direction: column; gap: 12px; }
+.wf-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.wf-center { display: flex; justify-content: center; }
+@media (min-width: 900px) {
+    .wf-layout { display: grid; grid-template-columns: 1fr 380px 1fr; align-items: start; }
+}
+.wf-left .game-dashboard { flex-wrap: wrap; }

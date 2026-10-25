@@ -108,6 +108,11 @@ window.BoardgameChat = (() => {
 }
 .bgtable-pick.emoji { font-size: 1.3rem; padding: 2px 8px; }
 .bgtable-hint { padding: 0 10px 8px; font-size: 0.7rem; color: #8c7a6e; min-height: 1em; }
+/* A page can put the table right in its layout with <div data-table-dock>; then it is always shown there */
+.bgtable-panel.docked {
+    position: static; display: flex; width: 100%; max-width: 380px; max-height: none; margin: 0 auto;
+    z-index: auto; box-shadow: none;
+}
 @media (max-width: 600px) {
     .bgtable-panel { right: 8px; bottom: 140px; }
     .bgtable-fab { right: 12px; bottom: 76px; }
@@ -230,13 +235,44 @@ window.BoardgameChat = (() => {
         document.body.appendChild(ui.tablePanel);
         document.body.appendChild(ui.tableFab);
         ui.tableFab.addEventListener('click', () => setTableOpen(!tableOpen));
+        const dock = document.querySelector('[data-table-dock]');
+        if (dock) {
+            ui.dock = dock;
+            ui.tablePanel.classList.add('docked');
+            dock.appendChild(ui.tablePanel);
+            // The dock lives inside a view that is only sometimes visible: use the floating button when it is hidden
+            setInterval(syncDock, 700);
+        }
+    }
+
+    function dockVisible() {
+        return !!(ui.dock && ui.dock.offsetParent !== null);
+    }
+
+    function syncDock() {
+        if (!ui.dock) return;
+        const visible = dockVisible();
+        const wasDocked = ui.tablePanel.classList.contains('docked');
+        if (visible && !wasDocked) {
+            ui.tablePanel.classList.add('docked');
+            ui.dock.appendChild(ui.tablePanel);
+            setTableOpen(false);
+            renderTable();
+        } else if (!visible && wasDocked) {
+            ui.tablePanel.classList.remove('docked');
+            document.body.appendChild(ui.tablePanel);
+            ui.tablePanel.classList.remove('show');
+            tableOpen = false;
+        }
+        ui.tableFab.classList.toggle('show', !visible && !!roomCode);
     }
 
     function setTableOpen(value) {
         tableOpen = value;
+        if (ui.tablePanel.classList.contains('docked')) value = true;
         ui.tablePanel.classList.toggle('show', value);
         if (value) {
-            if (open) setOpen(false);
+            if (open && !ui.tablePanel.classList.contains('docked')) setOpen(false);
             renderTable();
         }
     }
@@ -289,7 +325,7 @@ window.BoardgameChat = (() => {
 
     function show(visible) {
         ui.fab.classList.toggle('show', visible);
-        ui.tableFab.classList.toggle('show', visible);
+        ui.tableFab.classList.toggle('show', visible && !dockVisible());
         if (!visible) {
             setOpen(false);
             setTableOpen(false);
@@ -324,7 +360,7 @@ window.BoardgameChat = (() => {
             if (state && Array.isArray(state.players)) {
                 const ids = state.players.map(p => p.id).join();
                 players = state.players;
-                if (tableOpen || ids !== lastIds) renderTable();
+                if (tableOpen || dockVisible() || ids !== lastIds) renderTable();
                 lastIds = ids;
             }
             const code = state && state.roomCode;
