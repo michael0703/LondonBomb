@@ -5456,6 +5456,19 @@ const CHAT_MAX_MESSAGES = 100;
 const CHAT_MAX_LENGTH = 200;
 const CHAT_MIN_INTERVAL_MS = 400;
 
+// ================= ROUND TABLE EMOTES (every game) =================
+// Players sit around a round table (public/shared/chat.js) and can send an
+// emoji or a preset phrase that pops up next to their seat. Only values from
+// these lists are accepted, one per player every few seconds.
+
+const TABLE_EMOTES = ['😂', '😏', '😡', '😱', '🤔', '👍', '👎', '🔪', '🤡', '💩', '🙏', '❤️'];
+const TABLE_PHRASES = [
+  '你很可疑喔！', '我是好人，相信我！', '快點啦～', '別看我，我什麼都沒做',
+  '這局我贏定了', '哈哈，被我抓到了吧', '你在騙人對不對？', '我懂了，是你！',
+  '再給我一次機會', '好啦好啦，你最強', '乾杯！', '我要認真了'
+];
+const TABLE_EMOTE_INTERVAL_MS = 3000;
+
 io.on('connection', (socket) => {
   // Event: Ask for the room's recent messages (on joining / reconnecting)
   socket.on('chat_history', () => {
@@ -5483,6 +5496,31 @@ io.on('connection', (socket) => {
     room.players.forEach(p => {
       if (p.connected && !p.isBot) io.to(p.id).emit('chat_message', message);
     });
+  });
+
+  // Event: Show an emoji / preset phrase over my seat for everyone in the room
+  socket.on('table_emote', ({ kind, value } = {}) => {
+    const room = getRoomBySocket(socket);
+    if (!room) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+    const list = kind === 'emoji' ? TABLE_EMOTES : kind === 'phrase' ? TABLE_PHRASES : null;
+    if (!list || !list.includes(value)) return;
+    const now = Date.now();
+    if (socket.data.lastEmoteAt && now - socket.data.lastEmoteAt < TABLE_EMOTE_INTERVAL_MS) {
+      socket.emit('table_emote_wait', { waitMs: TABLE_EMOTE_INTERVAL_MS - (now - socket.data.lastEmoteAt) });
+      return;
+    }
+    socket.data.lastEmoteAt = now;
+    const payload = { playerId: player.id, name: player.name, kind, value, time: now };
+    room.players.forEach(p => {
+      if (p.connected && !p.isBot) io.to(p.id).emit('table_emote', payload);
+    });
+  });
+
+  // Event: Ask for the emoji / phrase lists
+  socket.on('table_options', () => {
+    socket.emit('table_options', { emojis: TABLE_EMOTES, phrases: TABLE_PHRASES, intervalMs: TABLE_EMOTE_INTERVAL_MS });
   });
 });
 

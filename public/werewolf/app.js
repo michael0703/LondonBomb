@@ -243,6 +243,8 @@ function renderNight(state, panel) {
     const others = state.players.filter(p => p.id !== socket.id).map(p => p.id);
     const send = (action) => socket.emit('werewolf_night', action);
     const done = state.players.filter(p => p.nightDone).length;
+    const pending = state.players.filter(p => !p.nightDone && !p.left).map(p => p.name);
+    if (pending.length) panel.appendChild(el('div', 'control-hint', `⏳ 還沒完成夜晚行動：${pending.join('、')}`));
 
     if (my.nightDone) {
         hint(`🌙 你已完成夜晚行動，等待其他人…（${done}/${state.players.length}）`);
