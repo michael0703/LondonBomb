@@ -11,6 +11,11 @@ window.BoardgameChat = (() => {
     let messages = [];
     const ui = {};
     let players = [];
+    let speakerId = null; // a game can mark whose turn it is to talk (state.speakerId)
+    // A game can put tokens on the table (state.tableBoard): in front of seats,
+    // in center slots or in a tray; tap a token, then tap where it goes
+    let board = null;
+    let selectedCard = null;
     let tableOpen = false;
     let lastIds = '';
     let options = null;
@@ -79,7 +84,8 @@ window.BoardgameChat = (() => {
     font-family: 'Noto Sans TC', 'Outfit', sans-serif;
 }
 .bgtable-panel.show { display: flex; }
-.bgtable-ring { position: relative; width: 280px; height: 280px; margin: 8px auto; flex: none; }
+/* Extra room on top so the top seat's bubble isn't cut off by the panel */
+.bgtable-ring { position: relative; width: 280px; height: 280px; margin: 48px auto 8px; flex: none; }
 .bgtable-top {
     position: absolute; left: 50%; top: 50%; width: 150px; height: 150px; margin: -75px 0 0 -75px;
     border-radius: 50%; background: radial-gradient(#8a5a3c, #5d3a24); border: 4px solid #3c2f2f;
@@ -94,6 +100,8 @@ window.BoardgameChat = (() => {
 }
 .bgtable-seat.me .bgtable-avatar { border-color: #e5b058; }
 .bgtable-seat.away { opacity: 0.45; }
+.bgtable-seat.speaking .bgtable-avatar { border-color: #e5b058; box-shadow: 0 0 0 4px rgba(229,176,88,0.55), 0 0 14px #e5b058; }
+.bgtable-seat.speaking .bgtable-name::before { content: '🎤 '; }
 .bgtable-name { font-size: 0.65rem; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bgtable-bubble {
     position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 2px;
@@ -101,6 +109,34 @@ window.BoardgameChat = (() => {
     font-size: 0.75rem; font-weight: 700; white-space: nowrap; z-index: 2; pointer-events: none;
 }
 .bgtable-bubble.emoji { font-size: 1.6rem; padding: 0 6px; }
+.bgtable-zone {
+    position: absolute; width: 40px; margin: -14px 0 0 -20px; min-height: 28px; border-radius: 8px;
+    display: flex; flex-wrap: wrap; justify-content: center; align-content: center; gap: 1px; z-index: 1;
+}
+.bgtable-slot {
+    position: absolute; width: 28px; height: 44px; margin: -22px 0 0 -14px; border-radius: 6px; z-index: 1;
+    border: 2px dashed rgba(255,255,255,0.55); display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 0.55rem; color: rgba(255,255,255,0.8); font-weight: 700;
+}
+.bgtable-ring.can-drop .bgtable-zone { outline: 2px dashed rgba(229,176,88,0.9); background: rgba(255,246,227,0.25); cursor: pointer; }
+.bgtable-ring.can-drop .bgtable-slot { border-color: #e5b058; cursor: pointer; }
+.bgtable-ring.can-drop .bgtable-seat { cursor: pointer; }
+.bgtable-token {
+    border: 1px solid #3c2f2f; background: #fff; border-radius: 6px; padding: 0 2px; line-height: 1.25;
+    font-size: 0.85rem; font-family: inherit; color: #3c2f2f; cursor: default;
+}
+.bgtable-token.movable { cursor: pointer; }
+.bgtable-token.selected { background: #e5b058; box-shadow: 0 0 0 2px #fff, 0 0 8px #e5b058; }
+.bgtable-board { display: none; flex-direction: column; gap: 6px; padding: 8px 10px; border-top: 1px solid #eadfd3; }
+.bgtable-board.show { display: flex; }
+.bgtable-board-head { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; font-weight: 700; color: #8c7a6e; }
+.bgtable-board-head span { flex: 1; }
+.bgtable-board-head button {
+    border: 1px solid #cfc2b6; background: #fff; border-radius: 8px; padding: 2px 8px; font-size: 0.7rem; cursor: pointer; font-family: inherit;
+}
+.bgtable-tray { display: flex; flex-wrap: wrap; gap: 4px; min-height: 30px; padding: 4px; border-radius: 8px; background: #f6efe6; }
+.bgtable-tray .bgtable-token { font-size: 0.75rem; padding: 2px 6px; }
+.bgtable-tray.can-drop { outline: 2px dashed #e5b058; cursor: pointer; }
 .bgtable-picks { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-top: 1px solid #eadfd3; }
 .bgtable-pick {
     border: 1px solid #cfc2b6; background: #f1e8dd; border-radius: 10px; padding: 4px 8px;
@@ -111,7 +147,7 @@ window.BoardgameChat = (() => {
 /* A page can put the table right in its layout with <div data-table-dock>; then it is always shown there */
 .bgtable-panel.docked {
     position: static; display: flex; width: 100%; max-width: 380px; max-height: none; margin: 0 auto;
-    z-index: auto; box-shadow: none;
+    z-index: auto; box-shadow: none; overflow: visible;
 }
 @media (max-width: 600px) {
     .bgtable-panel { right: 8px; bottom: 140px; }
@@ -229,8 +265,50 @@ window.BoardgameChat = (() => {
         ui.ring = el('div', 'bgtable-ring');
         ui.picks = el('div', 'bgtable-picks');
         ui.hint = el('div', 'bgtable-hint', '點一個表情或句子，大家會在你的座位旁看到');
+        ui.board = el('div', 'bgtable-board');
+        const head = el('div', 'bgtable-board-head');
+        ui.boardHint = el('span');
+        ui.boardClear = el('button', null, '全部收回');
+        ui.boardClear.type = 'button';
+        head.appendChild(ui.boardHint);
+        head.appendChild(ui.boardClear);
+        ui.tray = el('div', 'bgtable-tray');
+        ui.tray.dataset.drop = 'tray';
+        ui.board.appendChild(head);
+        ui.board.appendChild(ui.tray);
         ui.tablePanel.appendChild(ui.ring);
+        ui.tablePanel.appendChild(ui.board);
         ui.tablePanel.appendChild(ui.picks);
+        // One click handler for tokens and drop places on the table and in the tray
+        const onBoardClick = (e) => {
+            if (!board || !board.canMove) return;
+            const token = e.target.closest('.bgtable-token');
+            // With a card from the table picked up, tapping anywhere in the pile (even on a card) puts it back
+            const picked = selectedCard && board.cards.find(c => c.id === selectedCard);
+            if (token && picked && picked.at !== 'tray' && ui.tray.contains(token)) {
+                socket.emit(board.moveEvent, { cardId: selectedCard, to: 'tray' });
+                selectedCard = null;
+                renderTable();
+                return;
+            }
+            if (token) {
+                e.stopPropagation();
+                selectedCard = selectedCard === token.dataset.card ? null : token.dataset.card;
+                renderTable();
+                return;
+            }
+            const drop = e.target.closest('[data-drop]');
+            if (drop && selectedCard) {
+                socket.emit(board.moveEvent, { cardId: selectedCard, to: drop.dataset.drop });
+                selectedCard = null;
+                renderTable();
+            }
+        };
+        ui.ring.addEventListener('click', onBoardClick);
+        ui.tray.addEventListener('click', onBoardClick);
+        ui.boardClear.addEventListener('click', () => {
+            if (board && board.canMove && confirm('把桌上的牌全部收回？')) socket.emit(board.clearEvent);
+        });
         ui.tablePanel.appendChild(ui.hint);
         document.body.appendChild(ui.tablePanel);
         document.body.appendChild(ui.tableFab);
@@ -291,14 +369,32 @@ window.BoardgameChat = (() => {
         return b;
     }
 
+    function tokenFor(card, inTray) {
+        const t = el('button', 'bgtable-token' + (board.canMove ? ' movable' : '') + (card.id === selectedCard ? ' selected' : ''),
+            inTray ? `${card.icon}${card.label}` : card.icon);
+        t.type = 'button';
+        t.title = card.label;
+        t.dataset.card = card.id;
+        return t;
+    }
+
     function renderTable() {
         if (!ui.ring) return;
+        // Keep emote bubbles that are still showing across the redraw
+        const bubbles = {};
+        ui.ring.querySelectorAll('.bgtable-seat').forEach(s => {
+            const b = s.querySelector('.bgtable-bubble');
+            if (b) bubbles[s.dataset.pid] = b;
+        });
         ui.ring.innerHTML = '';
         ui.ring.appendChild(el('div', 'bgtable-top'));
+        if (!board || !board.canMove || !board.cards.some(c => c.id === selectedCard)) selectedCard = null;
+        const dropping = !!(board && board.canMove && selectedCard);
+        ui.ring.classList.toggle('can-drop', dropping);
         const n = players.length;
         players.forEach((p, i) => {
             const angle = (i / Math.max(n, 1)) * 2 * Math.PI - Math.PI / 2;
-            const seat = el('div', 'bgtable-seat' + (socket && p.id === socket.id ? ' me' : '') + (p.connected === false ? ' away' : ''));
+            const seat = el('div', 'bgtable-seat' + (socket && p.id === socket.id ? ' me' : '') + (p.connected === false ? ' away' : '') + (p.id === speakerId ? ' speaking' : ''));
             seat.dataset.pid = p.id;
             seat.style.left = `${140 + 112 * Math.cos(angle)}px`;
             seat.style.top = `${140 + 112 * Math.sin(angle)}px`;
@@ -306,8 +402,44 @@ window.BoardgameChat = (() => {
             avatar.style.background = avatarColor(p.name);
             seat.appendChild(avatar);
             seat.appendChild(el('div', 'bgtable-name', p.name));
+            if (bubbles[p.id]) seat.appendChild(bubbles[p.id]);
             ui.ring.appendChild(seat);
+            if (board) {
+                // Tokens sit on the table edge in front of the seat; the seat itself is also a drop target
+                seat.dataset.drop = p.id;
+                const zone = el('div', 'bgtable-zone');
+                zone.dataset.drop = p.id;
+                zone.style.left = `${140 + 68 * Math.cos(angle)}px`;
+                zone.style.top = `${140 + 68 * Math.sin(angle)}px`;
+                board.cards.filter(c => c.at === p.id).forEach(c => zone.appendChild(tokenFor(c, false)));
+                ui.ring.appendChild(zone);
+            }
         });
+        if (board) {
+            for (let k = 0; k < board.centerSlots; k++) {
+                const slot = el('div', 'bgtable-slot');
+                slot.dataset.drop = `center${k}`;
+                slot.style.left = `${140 + (k - (board.centerSlots - 1) / 2) * 31}px`;
+                slot.style.top = '140px';
+                const cards = board.cards.filter(c => c.at === `center${k}`);
+                if (cards.length) cards.forEach(c => slot.appendChild(tokenFor(c, false)));
+                else slot.appendChild(el('span', null, `中${k + 1}`));
+                ui.ring.appendChild(slot);
+            }
+        }
+        renderBoardTray(dropping);
+    }
+
+    function renderBoardTray(dropping) {
+        ui.board.classList.toggle('show', !!board);
+        if (!board) return;
+        const picked = selectedCard && board.cards.find(c => c.id === selectedCard);
+        ui.boardHint.textContent = picked ? `已選 ${picked.icon}${picked.label}：點玩家或中間的位置放下（點牌堆收回）`
+            : board.canMove ? `🃏 ${board.hint}，點一張牌再點要放的位置` : `🃏 ${board.hint}`;
+        ui.boardClear.style.display = board.canMove && board.cards.some(c => c.at !== 'tray') ? '' : 'none';
+        ui.tray.innerHTML = '';
+        ui.tray.classList.toggle('can-drop', dropping);
+        board.cards.filter(c => c.at === 'tray').forEach(c => ui.tray.appendChild(tokenFor(c, true)));
     }
 
     function showBubble(m) {
@@ -360,6 +492,8 @@ window.BoardgameChat = (() => {
             if (state && Array.isArray(state.players)) {
                 const ids = state.players.map(p => p.id).join();
                 players = state.players;
+                speakerId = state.speakerId || null;
+                board = state.tableBoard || null;
                 if (tableOpen || dockVisible() || ids !== lastIds) renderTable();
                 lastIds = ids;
             }

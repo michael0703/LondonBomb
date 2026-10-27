@@ -76,8 +76,9 @@ BoardgameI18n.add({
     '，這時沒有任何玩家是狼人（人越少越容易發生，例如 3 人局約 20%）。': ', so no player is a werewolf (more likely with fewer players: about 20% with 3).',
     '這時': 'Then',
     '沒有人死 ➔ 好人贏': 'nobody dies ➔ the village wins',
-    '；有人被票死 ➔ 好人輸。': '; someone is voted out ➔ the village loses.',
-    '場上有爪牙、爪牙沒死、但有別人死 ➔ 爪牙（狼人陣營）贏。皮匠被票死 ➔ 皮匠贏。': 'If there is a Minion who survives while someone else dies ➔ the Minion (werewolf team) wins. The Tanner voted out ➔ the Tanner wins.',
+    '爪牙被票死 ➔ 好人也贏': 'the Minion voted out ➔ the village also wins',
+    '（爪牙是唯一的壞人）。': ' (the Minion is the only bad guy).',
+    '其他人被票死 ➔ 好人輸；這時場上有爪牙、而且爪牙沒死 ➔ 爪牙（狼人陣營）贏。皮匠被票死 ➔ 皮匠贏。': 'Anyone else voted out ➔ the village loses; if a Minion is in play and survives ➔ the Minion (werewolf team) wins. The Tanner voted out ➔ the Tanner wins.',
     '覺得沒有狼人時，大家可以': 'If you think there is no werewolf, you can',
     '把票分散': 'spread your votes',
     '，讓沒有人拿到 2 票。': 'so nobody gets 2.',
@@ -222,5 +223,26 @@ BoardgameI18n.add({
     '沒有人得到 2 票以上，沒有人死亡。': 'Nobody got 2 or more votes, so nobody dies.',
     '🏹 {0} 是獵人，帶走了 {1}！': '🏹 {0} was the Hunter and took {1} down too!',
     '🏁 {0}獲勝！': '🏁 {0} wins!',
-    '🏁 這局沒有任何陣營獲勝。': '🏁 Nobody wins this game.'
+    '🏁 這局沒有任何陣營獲勝。': '🏁 Nobody wins this game.',
+
+    // Speaking round at dawn
+    '🎤 天亮後輪流發言（每人）': '🎤 Speaking turns at dawn (each)',
+    '30 秒': '30 sec',
+    '{0} 秒': '{0} sec',
+    '不輪流': 'Off',
+    '🎤 輪到你發言！': '🎤 Your turn to speak!',
+    '🎤 現在輪到 {0} 發言': '🎤 {0} is speaking now',
+    '順時針輪流，每人 {0} 秒，時間到自動換下一位。大家都講過之後自由討論。': 'Clockwise, {0} seconds each; the next person goes when time is up. Free discussion after everyone has spoken.',
+    '✅ 我講完了，換下一位': '✅ Done, next person',
+    '⏭️ 跳過 {0}': '⏭️ Skip {0}',
+    '🗳️ 不用講了，直接投票': '🗳️ Skip the rest, vote now',
+    '還沒輪完，確定直接開始投票嗎？': 'Not everyone has spoken yet. Start the vote anyway?',
+    '🎤 {0} 發言中': '🎤 {0} is speaking',
+    '☀️ 天亮了！從 {0} 開始，順時針輪流發言，每人 {1} 秒。': '☀️ Morning! {0} speaks first, then clockwise, {1} seconds each.',
+    '💬 大家都發言過了，自由討論 {0} 分鐘後投票。': '💬 Everyone has spoken. Free discussion for {0} minutes, then vote.',
+
+    // Round-table sandbox
+    '沙盤推演（投票時不能再移動）': 'Sandbox (cards are locked during the vote)',
+    '沙盤推演：輪到發言的人可以擺牌': 'Sandbox: the current speaker can move cards',
+    '沙盤推演：大家都可以擺牌': 'Sandbox: everyone can move cards'
 });

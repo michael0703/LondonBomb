@@ -57,6 +57,10 @@ async function playGame(g) {
   for (let i = 0; i < n; i++) bots.push({ s: await connect(), name: 'B' + i, state: null, action: undefined, acted: false, voted: false });
   const host = bots[0];
   const sleeper = forceDawn ? pick(bots.slice(1)) : null;
+  // Half the games play the dawn speaking round to the end; the rest vote straight away
+  const speechRound = Math.random() < 0.5;
+  const spoken = [];
+  let speechOrder = null;
 
   let resolveEnd;
   const ended = new Promise(r => { resolveEnd = r; });
@@ -86,7 +90,20 @@ async function playGame(g) {
           setTimeout(() => host.s.emit('werewolf_forceDawn'), 200);
         }
       }
-      if (st.roundPhase === 'day' && b === host && !b.dayDone) { b.dayDone = true; setTimeout(() => b.s.emit('werewolf_startVoting'), rnd(20)); }
+      if (st.roundPhase === 'day' && speechRound) {
+        // Each speaker ends their own turn (sometimes the host skips them); record who spoke
+        const sp = st.speech;
+        if (sp && b === host && spoken[spoken.length - 1] !== sp.speakerId) {
+          spoken.push(sp.speakerId);
+          if (!speechOrder) speechOrder = sp.order;
+        }
+        if (sp && sp.speakerId === b.s.id && b.spokeAt !== sp.index) {
+          b.spokeAt = sp.index;
+          const who = Math.random() < 0.2 ? host : b;
+          setTimeout(() => who.s.emit('werewolf_speechDone'), rnd(20));
+        }
+        if (!sp && st.dayEndsAt && b === host && !b.dayDone) { b.dayDone = true; setTimeout(() => b.s.emit('werewolf_startVoting'), rnd(20)); }
+      } else if (st.roundPhase === 'day' && b === host && !b.dayDone) { b.dayDone = true; setTimeout(() => b.s.emit('werewolf_startVoting'), rnd(20)); }
       if (st.roundPhase === 'voting' && !b.voted) {
         b.voted = true;
         const others = st.players.filter(p => p.id !== b.s.id).map(p => p.id);
@@ -115,6 +132,14 @@ async function playGame(g) {
   bots.forEach(b => { b.id = b.s.id; b.s.disconnect(); });
   if (how !== 'ok') { fail(g, `did not finish (n=${n}, phase=${host.state && host.state.roundPhase}, errors=${errors.join(' | ')})`); return; }
   if (errors.length) fail(g, 'server errors: ' + errors.join(' | '));
+  if (speechRound) {
+    // Everyone spoke once, in seat order (clockwise), starting from someone
+    const seats = host.state.players.map(p => p.id);
+    const start = seats.indexOf(spoken[0]);
+    const expected = seats.slice(start).concat(seats.slice(0, start));
+    if (JSON.stringify(spoken) !== JSON.stringify(expected)) fail(g, `speaking order ${spoken.map(id => seats.indexOf(id))} is not clockwise from ${start}`);
+    if (JSON.stringify(speechOrder) !== JSON.stringify(expected)) fail(g, 'announced speaking order differs from the turns taken');
+  }
   verify(g, n, bots, sleeper, counts);
 }
 
@@ -195,7 +220,8 @@ function verify(g, n, bots, sleeper, counts) {
     if (deadRoles.includes('werewolf')) winners.add('village');
     else if (!deadRoles.includes('tanner')) winners.add('werewolf');
   } else {
-    if (!dead.length) winners.add('village');
+    // House rule: killing the minion also counts as a village win when no werewolf is in play
+    if (!dead.length || deadRoles.includes('minion')) winners.add('village');
     else if (st.players.some(p => card.get(p.id) === 'minion') && !deadRoles.includes('minion') && !deadRoles.includes('tanner')) winners.add('werewolf');
   }
   if (JSON.stringify([...winners].sort()) !== JSON.stringify([...r.winningTeams].sort())) fail(g, `winners ${r.winningTeams} expected ${[...winners]}`);

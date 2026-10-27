@@ -1458,7 +1458,36 @@ body {
 .wf-layout { display: flex; flex-direction: column; gap: 12px; }
 .wf-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .wf-center { display: flex; justify-content: center; }
-@media (min-width: 900px) {
-    .wf-layout { display: grid; grid-template-columns: 1fr 380px 1fr; align-items: start; }
+/* Three columns only when the sides still get a usable width; the game screen gets a wider container */
+@media (min-width: 1100px) {
+    #app-container:has(#game-view.active) { max-width: 1240px; }
+    .wf-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px minmax(0, 1fr); align-items: start; }
 }
-.wf-left .game-dashboard { flex-wrap: wrap; }
+/* Stacked (phones / narrow screens): what to do now comes before the table, the reference lists after it */
+@media (max-width: 1099px) {
+    .wf-right { display: contents; }
+    .wf-left { order: 1; }
+    .wf-right > * { order: 4; }
+    .wf-right > .bottom-controls { order: 2; }
+    .wf-center { order: 3; }
+}
+/* In the side column the stats sit three to a row, with the exit button on its own row */
+.wf-left .game-dashboard { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wf-left .exit-dash { grid-column: 1 / -1; padding: 6px; }
+.wf-left .exit-dash .btn { width: 100% !important; }
+
+/* Speaking round at dawn */
+.speech-now {
+    text-align: center; font-size: 1.15rem; font-weight: 800; color: var(--color-text-light);
+    padding: 10px; border-radius: 10px; background: #fff6e3; border: 2px solid var(--color-gold);
+}
+.speech-now.mine { background: var(--color-gold); color: #2b2020; animation: speech-pulse 1.2s ease-in-out infinite; }
+@keyframes speech-pulse { 50% { transform: scale(1.03); } }
+.speech-order { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.speech-chip {
+    padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700;
+    background: #fff; border: 1px solid var(--color-iron); color: var(--color-text-muted);
+}
+.speech-chip.done { opacity: 0.45; text-decoration: line-through; }
+.speech-chip.now { background: var(--color-gold); border-color: var(--color-gold); color: #2b2020; }
+.speech-chip.left { opacity: 0.3; }

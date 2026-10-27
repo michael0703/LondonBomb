@@ -227,5 +227,13 @@ BoardgameI18n.add({
     "回報功能還沒設定好（伺服器缺少 GitHub token）。": "Reporting isn't set up yet (the server has no GitHub token).",
     "請選擇類型。": "Please choose a type.",
     "送出太多次了，請稍後再試。": "Too many reports. Please try again later.",
-    "送到 GitHub 失敗了，請稍後再試。": "Sending to GitHub failed. Please try again later."
+    "送到 GitHub 失敗了，請稍後再試。": "Sending to GitHub failed. Please try again later.",
+
+    // Round-table sandbox tokens
+    '全部收回': 'Clear all',
+    '把桌上的牌全部收回？': 'Take every card back off the table?',
+    '中{0}': 'C{0}',
+    '已選 {0}{1}：點玩家或中間的位置放下（點牌堆收回）': 'Picked {0}{1}: tap a player or a center spot to place it (tap the pile to take it back)',
+    '🃏 {0}，點一張牌再點要放的位置': '🃏 {0}. Tap a card, then tap where it goes',
+    '🃏 {0}': '🃏 {0}'
 });

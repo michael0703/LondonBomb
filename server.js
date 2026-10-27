@@ -3441,6 +3441,10 @@ io.on('connection', (socket) => {
 const WEREWOLF_MIN_PLAYERS = 3;
 const WEREWOLF_MAX_PLAYERS = 10;
 const WEREWOLF_CENTER = 3;
+// At dawn everyone speaks once in turn, clockwise from a random player, before
+// the free discussion. Seconds per speaker (host setting, 0 = no speaking round).
+const WEREWOLF_SPEECH_SECONDS = [0, 20, 30, 45, 60, 90];
+const WEREWOLF_SPEECH_DEFAULT = 30;
 
 const WEREWOLF_ROLES = {
   werewolf: { name: '狼人', icon: '🐺', team: 'werewolf', max: 2, desc: '晚上和其他狼人互相確認。只有你一隻狼人的話，可以偷看中間 1 張牌。' },
@@ -3490,7 +3494,8 @@ function getWerewolfSetup(room) {
     auto: !settings.counts,
     cardCount: cards.length,
     cardsNeeded: total + WEREWOLF_CENTER,
-    discussMinutes: settings.discussMinutes || 5
+    discussMinutes: settings.discussMinutes || 5,
+    speechSeconds: WEREWOLF_SPEECH_SECONDS.includes(settings.speechSeconds) ? settings.speechSeconds : WEREWOLF_SPEECH_DEFAULT
   };
 }
 
@@ -3513,6 +3518,8 @@ function resetWerewolfRoom(room) {
   room.wwNightLog = [];
   room.wwVotes = [];
   room.wwDayEndsAt = null;
+  room.wwSpeech = null;
+  room.wwBoard = null;
   room.wwResult = null;
   room.players.forEach(p => {
     p.wwStart = null;
@@ -3543,7 +3550,10 @@ function startWerewolfGame(room) {
   room.wwCenterStart = cards.slice(room.players.length);
   room.wwCenter = [...room.wwCenterStart];
   room.wwRolesInGame = WEREWOLF_ROLE_ORDER.filter(r => setup.counts[r]).map(r => ({ role: r, count: setup.counts[r] }));
+  // Sandbox on the round table: one token per card in the game, all starting in the tray
+  room.wwBoard = werewolfCardList(setup.counts).map((role, i) => ({ id: `b${i}`, role, at: 'tray' }));
   room.wwDiscussMinutes = setup.discussMinutes;
+  room.wwSpeechSeconds = setup.speechSeconds;
   room.roundPhase = 'night';
 
   // Information some roles get just by waking up
@@ -3660,6 +3670,45 @@ function endWerewolfNight(room) {
   });
 
   room.roundPhase = 'day';
+  startWerewolfSpeech(room);
+}
+
+// Speaking round: order is the seat order (clockwise around the round table),
+// starting from a random player. wwDayTimer drives the turns, then the discussion.
+function startWerewolfSpeech(room) {
+  const seats = room.players.filter(p => !p.wwLeft);
+  if (!room.wwSpeechSeconds || !seats.length) {
+    startWerewolfDiscussion(room);
+    return;
+  }
+  const first = Math.floor(Math.random() * seats.length);
+  const order = seats.slice(first).concat(seats.slice(0, first)).map(p => p.id);
+  room.wwSpeech = { order, index: -1, endsAt: null };
+  addLog(room, 'system', `☀️ 天亮了！從 ${wwPlayer(room, order[0]).name} 開始，順時針輪流發言，每人 ${room.wwSpeechSeconds} 秒。`);
+  advanceWerewolfSpeech(room);
+}
+
+function advanceWerewolfSpeech(room) {
+  const speech = room.wwSpeech;
+  if (!speech) return;
+  clearTimeout(room.wwDayTimer);
+  // Skip anyone who left the game
+  do { speech.index++; } while (speech.index < speech.order.length && (wwPlayer(room, speech.order[speech.index]) || { wwLeft: true }).wwLeft);
+  if (speech.index >= speech.order.length) {
+    room.wwSpeech = null;
+    startWerewolfDiscussion(room);
+    return;
+  }
+  speech.endsAt = Date.now() + room.wwSpeechSeconds * 1000;
+  const turn = speech.index;
+  room.wwDayTimer = setTimeout(() => {
+    if (rooms.get(room.roomCode) !== room || room.roundPhase !== 'day' || room.wwSpeech !== speech || speech.index !== turn) return;
+    advanceWerewolfSpeech(room);
+    broadcastRoomUpdate(room);
+  }, room.wwSpeechSeconds * 1000);
+}
+
+function startWerewolfDiscussion(room) {
   room.wwDayEndsAt = Date.now() + room.wwDiscussMinutes * 60 * 1000;
   clearTimeout(room.wwDayTimer);
   room.wwDayTimer = setTimeout(() => {
@@ -3667,12 +3716,15 @@ function endWerewolfNight(room) {
     startWerewolfVoting(room);
     broadcastRoomUpdate(room);
   }, room.wwDiscussMinutes * 60 * 1000);
-  addLog(room, 'system', `☀️ 天亮了！討論 ${room.wwDiscussMinutes} 分鐘後投票。`);
+  addLog(room, 'system', room.wwSpeechSeconds
+    ? `💬 大家都發言過了，自由討論 ${room.wwDiscussMinutes} 分鐘後投票。`
+    : `☀️ 天亮了！討論 ${room.wwDiscussMinutes} 分鐘後投票。`);
 }
 
 function startWerewolfVoting(room) {
   clearTimeout(room.wwDayTimer);
   room.wwDayTimer = null;
+  room.wwSpeech = null;
   room.roundPhase = 'voting';
   room.wwVotes = [];
   addLog(room, 'system', '🗳️ 投票時間！');
@@ -3715,10 +3767,10 @@ function resolveWerewolfVotes(room) {
     if (wolfDied) winners.add('village');
     else if (!tannerDied) winners.add('werewolf');
   } else {
-    // No werewolf among the players: the village wins if nobody dies;
-    // a minion wins if someone else dies
+    // No werewolf among the players: the village wins if nobody dies or if
+    // they kill the minion (house rule); a minion wins if someone else dies
     const minionDied = deadPlayers.some(p => p.wwCard === 'minion');
-    if (!deadPlayers.length) winners.add('village');
+    if (!deadPlayers.length || minionDied) winners.add('village');
     else if (room.players.some(p => p.wwCard === 'minion') && !minionDied && !tannerDied) winners.add('werewolf');
   }
 
@@ -3735,6 +3787,14 @@ function resolveWerewolfVotes(room) {
   room.gameEnded = true;
   const teamNames = { village: '好人陣營', werewolf: '狼人陣營', tanner: '皮匠' };
   addLog(room, 'system', winners.size ? `🏁 ${[...winners].map(t => teamNames[t]).join('、')}獲勝！` : '🏁 這局沒有任何陣營獲勝。');
+}
+
+// Who may move the sandbox tokens: the current speaker during the speaking
+// round, anyone during the free discussion, nobody otherwise
+function canMoveWerewolfBoard(room, player) {
+  if (!room.wwBoard || room.roundPhase !== 'day' || !player || player.wwLeft) return false;
+  if (room.wwSpeech) return room.wwSpeech.order[room.wwSpeech.index] === player.id;
+  return true;
 }
 
 function getWerewolfRoomState(room, socketId) {
@@ -3766,6 +3826,24 @@ function getWerewolfRoomState(room, socketId) {
     roleOrder: WEREWOLF_ROLE_ORDER,
     rolesInGame: room.gameStarted ? (room.wwRolesInGame || []) : [],
     dayEndsAt: room.wwDayEndsAt || null,
+    speech: room.wwSpeech && room.wwSpeech.index >= 0 ? {
+      order: room.wwSpeech.order,
+      index: room.wwSpeech.index,
+      speakerId: room.wwSpeech.order[room.wwSpeech.index],
+      endsAt: room.wwSpeech.endsAt,
+      seconds: room.wwSpeechSeconds
+    } : null,
+    speakerId: room.wwSpeech && room.wwSpeech.index >= 0 ? room.wwSpeech.order[room.wwSpeech.index] : null,
+    // Shown on the shared round table (public/shared/chat.js) from dawn on
+    tableBoard: room.wwBoard && room.roundPhase !== 'night' ? {
+      cards: room.wwBoard.map(c => ({ id: c.id, at: c.at, icon: WEREWOLF_ROLES[c.role].icon, label: WEREWOLF_ROLES[c.role].name })),
+      centerSlots: WEREWOLF_CENTER,
+      canMove: canMoveWerewolfBoard(room, me),
+      moveEvent: 'werewolf_boardMove',
+      clearEvent: 'werewolf_boardClear',
+      hint: room.roundPhase !== 'day' ? '沙盤推演（投票時不能再移動）'
+        : room.wwSpeech ? '沙盤推演：輪到發言的人可以擺牌' : '沙盤推演：大家都可以擺牌'
+    } : null,
     serverNow: Date.now(),
     votedIds: votes.map(v => v.voter),
     myVote: myVote ? myVote.target : null,
@@ -3789,6 +3867,7 @@ function handleWerewolfDeparture(room, player) {
   player.wwLeft = true;
   if (room.roundPhase === 'night') maybeEndWerewolfNight(room);
   else if (room.roundPhase === 'voting') maybeResolveWerewolfVotes(room);
+  else if (room.wwSpeech && room.wwSpeech.order[room.wwSpeech.index] === player.id) advanceWerewolfSpeech(room);
 }
 
 function getWerewolfContext(socket, phase) {
@@ -3802,7 +3881,7 @@ function getWerewolfContext(socket, phase) {
 
 io.on('connection', (socket) => {
   // Event: Host changes the role counts / discussion time
-  socket.on('werewolf_settings', ({ counts, discussMinutes } = {}) => {
+  socket.on('werewolf_settings', ({ counts, discussMinutes, speechSeconds } = {}) => {
     const room = getRoomBySocket(socket);
     if (!room || room.gameType !== 'werewolf' || room.gameStarted) return;
     const player = wwPlayer(room, socket.id);
@@ -3818,6 +3897,7 @@ io.on('connection', (socket) => {
       room.wwSettings.counts = clean;
     }
     if (Number.isInteger(discussMinutes)) room.wwSettings.discussMinutes = Math.max(1, Math.min(15, discussMinutes));
+    if (WEREWOLF_SPEECH_SECONDS.includes(speechSeconds)) room.wwSettings.speechSeconds = speechSeconds;
     broadcastRoomUpdate(room);
   });
 
@@ -3844,6 +3924,38 @@ io.on('connection', (socket) => {
     const ctx = getWerewolfContext(socket, 'night');
     if (!ctx || !ctx.player.host) return;
     endWerewolfNight(ctx.room);
+    broadcastRoomUpdate(ctx.room);
+  });
+
+  // Event: The speaker (or the host) ends the current speaking turn early
+  socket.on('werewolf_speechDone', () => {
+    const ctx = getWerewolfContext(socket, 'day');
+    if (!ctx) return;
+    const { room, player } = ctx;
+    const speech = room.wwSpeech;
+    if (!speech || (speech.order[speech.index] !== player.id && !player.host)) return;
+    advanceWerewolfSpeech(room);
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Move a sandbox token to the tray, a center slot or in front of a player
+  socket.on('werewolf_boardMove', ({ cardId, to } = {}) => {
+    const ctx = getWerewolfContext(socket, 'day');
+    if (!ctx || !canMoveWerewolfBoard(ctx.room, ctx.player)) return;
+    const { room } = ctx;
+    const card = room.wwBoard.find(c => c.id === cardId);
+    if (!card || typeof to !== 'string') return;
+    const centerSlot = /^center[0-9]$/.test(to) && Number(to.slice(6)) < WEREWOLF_CENTER;
+    if (to !== 'tray' && !centerSlot && !wwPlayer(room, to)) return;
+    card.at = to;
+    broadcastRoomUpdate(room);
+  });
+
+  // Event: Put every sandbox token back in the tray
+  socket.on('werewolf_boardClear', () => {
+    const ctx = getWerewolfContext(socket, 'day');
+    if (!ctx || !canMoveWerewolfBoard(ctx.room, ctx.player)) return;
+    ctx.room.wwBoard.forEach(c => { c.at = 'tray'; });
     broadcastRoomUpdate(ctx.room);
   });
 

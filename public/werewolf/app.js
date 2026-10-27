@@ -179,6 +179,9 @@ function renderWaitingRoom(state) {
     $('setting-minutes').textContent = setup.discussMinutes;
     $('btn-time-minus').style.visibility = isHost ? 'visible' : 'hidden';
     $('btn-time-plus').style.visibility = isHost ? 'visible' : 'hidden';
+    $('setting-speech').textContent = setup.speechSeconds ? `${setup.speechSeconds} 秒` : '不輪流';
+    $('btn-speech-minus').style.visibility = isHost ? 'visible' : 'hidden';
+    $('btn-speech-plus').style.visibility = isHost ? 'visible' : 'hidden';
 
     const startBtn = $('btn-start-game');
     const statusMsg = $('lobby-status-msg');
@@ -326,6 +329,26 @@ function renderControls(state) {
         return '🌙 天黑請閉眼……';
     }
 
+    if (state.roundPhase === 'day' && state.speech) {
+        const s = state.speech;
+        const speaker = nameOf(state, s.speakerId);
+        const mine = s.speakerId === socket.id;
+        panel.appendChild(el('div', 'speech-now' + (mine ? ' mine' : ''), mine ? '🎤 輪到你發言！' : `🎤 現在輪到 ${speaker} 發言`));
+        const order = el('div', 'speech-order');
+        s.order.forEach((id, i) => {
+            const p = state.players.find(x => x.id === id);
+            order.appendChild(el('span', 'speech-chip' + (i < s.index ? ' done' : i === s.index ? ' now' : '') + (p && p.left ? ' left' : ''), nameOf(state, id)));
+        });
+        panel.appendChild(order);
+        hint(`順時針輪流，每人 ${s.seconds} 秒，時間到自動換下一位。大家都講過之後自由討論。`);
+        if (mine) panel.appendChild(button('✅ 我講完了，換下一位', 'btn-gold btn-wide', () => socket.emit('werewolf_speechDone')));
+        else if (isHost) panel.appendChild(button(`⏭️ 跳過 ${speaker}`, 'btn-brass btn-small', () => socket.emit('werewolf_speechDone')));
+        if (isHost) panel.appendChild(button('🗳️ 不用講了，直接投票', 'btn-brass btn-small', () => {
+            if (confirm('還沒輪完，確定直接開始投票嗎？')) socket.emit('werewolf_startVoting');
+        }));
+        return mine ? '🎤 輪到你發言！' : `🎤 ${speaker} 發言中`;
+    }
+
     if (state.roundPhase === 'day') {
         hint('☀️ 天亮了！大家當面討論誰是狼人。可以說謊，也可以假裝自己是別的身分。');
         if (isHost) panel.appendChild(button('🗳️ 討論完了，開始投票', 'btn-gold btn-wide', () => socket.emit('werewolf_startVoting')));
@@ -351,7 +374,10 @@ function renderControls(state) {
 }
 
 function renderTimer(state) {
-    if (state.roundPhase === 'day' && state.dayEndsAt) {
+    if (state.roundPhase === 'day' && state.speech && state.speech.endsAt) {
+        const left = Math.max(0, Math.round((state.speech.endsAt - (Date.now() + clockOffset)) / 1000));
+        $('display-timer').textContent = `🎤 ${left}`;
+    } else if (state.roundPhase === 'day' && state.dayEndsAt) {
         const left = Math.max(0, Math.round((state.dayEndsAt - (Date.now() + clockOffset)) / 1000));
         $('display-timer').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
     } else {
@@ -476,6 +502,16 @@ function initEvents() {
         AudioSynth.playTick();
         socket.emit('werewolf_settings', { discussMinutes: latestState.setup.discussMinutes + 1 });
     });
+    // Seconds per speaker step through the server's list (0 = no speaking round)
+    const SPEECH_STEPS = [0, 20, 30, 45, 60, 90];
+    const stepSpeech = (dir) => {
+        AudioSynth.playTick();
+        const i = SPEECH_STEPS.indexOf(latestState.setup.speechSeconds);
+        const next = SPEECH_STEPS[Math.max(0, Math.min(SPEECH_STEPS.length - 1, i + dir))];
+        socket.emit('werewolf_settings', { speechSeconds: next });
+    };
+    $('btn-speech-minus').addEventListener('click', () => stepSpeech(-1));
+    $('btn-speech-plus').addEventListener('click', () => stepSpeech(1));
 
     document.querySelectorAll('[data-open-help]').forEach(btn => btn.addEventListener('click', () => {
         AudioSynth.playTick();
