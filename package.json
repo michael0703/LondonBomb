@@ -7,7 +7,8 @@
     "start": "node server.js",
     "test:werewolf": "node tests/werewolf-bots.js",
     "test:avalon": "node tests/avalon-bots.js",
-    "test:bloody99": "node tests/bloody99-bots.js"
+    "test:bloody99": "node tests/bloody99-bots.js",
+    "build:lom": "node tools/lom-build.js"
   },
   "dependencies": {
     "express": "^4.19.2",

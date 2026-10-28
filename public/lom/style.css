@@ -8,6 +8,8 @@
     --edge: #5c4835;
     --node: #2e241b;
     --dim: 0.25;
+    --bad: #e0675a;
+    --good: #7cbf8a;
 }
 
 :root[data-theme="light"] {
@@ -19,6 +21,8 @@
     --accent: #a67c00;
     --edge: #c9b48e;
     --node: #fffaf0;
+    --bad: #b8382b;
+    --good: #2f7d43;
 }
 
 * { box-sizing: border-box; }
@@ -119,6 +123,16 @@ body { display: flex; flex-direction: column; }
 .node.selected text { fill: var(--bg); }
 .node.match rect { stroke: var(--accent); stroke-dasharray: 4 2; stroke-width: 2; }
 
+.node.kind-event rect { stroke: var(--accent); }
+.node.kind-year rect, .node.kind-group rect, .node.kind-root rect { stroke: var(--accent); stroke-width: 2; }
+.node.kind-route rect { stroke-dasharray: 6 3; }
+.node.kind-ref rect { stroke-dasharray: 3 3; }
+.node.kind-ref text:not(.period) { font-style: italic; }
+.node.kind-badend rect, .node.kind-badend-ref rect { stroke: var(--bad); }
+.node.kind-badend .period, .node.kind-badend-ref .period { fill: var(--bad); }
+.node.kind-end rect, .node.kind-end-ref rect { stroke: var(--good); }
+.node.kind-end .period, .node.kind-end-ref .period { fill: var(--good); }
+
 .toggle circle { fill: var(--surface); stroke: var(--border); }
 .toggle text { fill: var(--muted); font-size: 12px; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
 .toggle { cursor: pointer; }
@@ -136,7 +150,7 @@ svg.has-path .toggle { opacity: var(--dim); }
 }
 .panel-empty { color: var(--muted); line-height: 1.6; }
 .hint { font-size: 13px; }
-#route h2 { margin: 0 0 4px; color: var(--accent); font-size: 18px; }
+#route h2 { margin: 0 0 4px; word-break: break-word; color: var(--accent); font-size: 18px; }
 .route-meta { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
 
 .steps { margin: 0; padding-left: 22px; }
@@ -144,11 +158,26 @@ svg.has-path .toggle { opacity: var(--dim); }
 .steps li.current .s-title { color: var(--accent); }
 .s-title { font-weight: 700; cursor: pointer; }
 .s-period { font-size: 12px; color: var(--muted); }
-.s-choice { font-size: 14px; }
-.s-choice::before { content: '選擇：'; color: var(--muted); }
-.s-cond { font-size: 13px; color: var(--muted); }
+.s-cond, .s-effects, .s-result, .s-remark, .s-summary { font-size: 13px; white-space: pre-line; }
+.s-cond { color: var(--muted); }
 .s-cond::before { content: '條件：'; }
-.s-summary { font-size: 13px; margin-top: 2px; }
+.s-effects::before { content: '數值：'; color: var(--muted); }
+.s-result::before { content: '結果：'; color: var(--muted); }
+.s-remark { color: var(--muted); }
+.s-remark::before { content: '備註：'; }
+.s-goto {
+    margin-top: 4px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--accent);
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+.source { margin-top: 20px; font-size: 12px; color: var(--muted); }
+.source a { color: var(--accent); }
 .s-link { font-size: 12px; color: var(--accent); }
 
 @media (max-width: 760px) {

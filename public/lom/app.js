@@ -1,6 +1,6 @@
 // 活俠傳劇情樹：讀取 data/story.json，畫成由左到右的樹，點節點顯示從開局到該節點的路線。
 (function () {
-    const NODE_W = 172;
+    const NODE_W = 196;
     const NODE_H = 42;
     const COL_W = NODE_W + 64;
     const ROW_H = NODE_H + 16;
@@ -32,12 +32,40 @@
             if (p) p.children.push(n);
             else roots.push(n);
         }
-        if (data.demo || data.note) {
+        // 一開始只攤開到年份；第一年展開到事件，讓畫面一打開就看得到樹
+        let firstYear = true;
+        for (const n of byId.values()) {
+            if (!n.children.length) continue;
+            // 事件和結局清單預設收合
+            if (n.kind === 'event' || n.kind === 'group' && !n.children.some(c => c.kind === 'year')) collapsed.add(n.id);
+            if (n.kind === 'year') {
+                if (firstYear && n.children.some(c => c.kind === 'slot')) firstYear = false;
+                else collapsed.add(n.id);
+            }
+        }
+        if (data.demo) {
             const banner = document.getElementById('banner');
             banner.textContent = data.note || '目前顯示的是示範資料。';
             banner.hidden = false;
         }
+        if (data.source) {
+            const src = document.getElementById('source');
+            src.textContent = '';
+            const a = document.createElement('a');
+            a.href = data.source.url;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.textContent = data.source.name;
+            src.append('資料整理自 ', a, `（${data.source.license}），內容以 wiki 為準。`);
+            src.hidden = false;
+        }
     }
+
+    const KIND_LABEL = {
+        root: '', group: '', year: '時期', slot: '時間', route: '路線', event: '事件',
+        decision: '抉擇', option: '選項', branch: '分歧', ref: '跳轉',
+        end: '結局', 'end-ref': '進入結局', badend: '生死簿', 'badend-ref': '進入生死簿',
+    };
 
     function pathTo(id) {
         const path = [];
@@ -112,19 +140,20 @@
                 }
             }
 
-            let cls = 'node';
+            let cls = 'node kind-' + (n.kind || 'none');
             if (onPath.has(n.id)) cls += ' on-path';
             if (n.id === selectedId) cls += ' selected';
             if (matchIds.has(n.id)) cls += ' match';
             const g = el('g', { class: cls, transform: `translate(${x},${y})`, 'data-id': n.id }, nodeLayer);
             el('rect', { width: NODE_W, height: NODE_H, rx: 8 }, g);
             const tip = el('title', {}, g);
-            tip.textContent = n.title + (n.choice ? `\n選擇：${n.choice}` : '');
-            if (n.period) {
-                el('text', { x: 10, y: 12, class: 'period' }, g).textContent = clip(n.period, 18);
-                el('text', { x: 10, y: 28 }, g).textContent = clip(n.title, 11);
+            tip.textContent = n.title + (n.effects ? `\n${n.effects}` : '') + (n.result ? `\n→ ${n.result}` : '');
+            const small = n.kind === 'event' && n.period ? n.period : (KIND_LABEL[n.kind] || '') + (n.children.length && collapsed.has(n.id) ? `・${n.children.length} 個分支` : '');
+            if (small) {
+                el('text', { x: 10, y: 12, class: 'period' }, g).textContent = clip(small, 22);
+                el('text', { x: 10, y: 28 }, g).textContent = clip(n.title, 13);
             } else {
-                el('text', { x: 10, y: NODE_H / 2 }, g).textContent = clip(n.title, 11);
+                el('text', { x: 10, y: NODE_H / 2 }, g).textContent = clip(n.title, 13);
             }
 
             if (n.children.length) {
@@ -146,8 +175,11 @@
         path.slice(0, -1).forEach(n => collapsed.delete(n.id));
         render();
         showRoute(path);
-        if (center) centerOn(byId.get(id));
-        try { history.replaceState(null, '', '#node=' + encodeURIComponent(id)); } catch (e) {}
+        if (center) {
+            view.k = Math.max(view.k, 0.9);
+            centerOn(byId.get(id));
+        }
+        try { history.replaceState(null, '', '#' + id); } catch (e) {}
     }
 
     function showRoute(path) {
@@ -156,11 +188,13 @@
         document.getElementById('route').hidden = false;
         document.getElementById('route-title').textContent = target.title;
         document.getElementById('route-meta').textContent =
-            `共 ${path.length} 步` + (target.children.length ? `・之後有 ${target.children.length} 個分支` : '・路線終點');
+            `共 ${path.length} 步` + (target.children.length ? `・之後有 ${target.children.length} 個分支` : target.goto ? '・接到其他節點' : '・路線終點');
 
         const steps = document.getElementById('steps');
         steps.textContent = '';
+        // 最上層的「活俠傳」「劇情時間線」每條路線都一樣，不列出來
         path.forEach((n, i) => {
+            if ((n.kind === 'root' || n.kind === 'group') && i < path.length - 1) return;
             const li = document.createElement('li');
             if (i === path.length - 1) li.className = 'current';
             const add = (cls, text, tag = 'div') => {
@@ -170,11 +204,19 @@
                 li.appendChild(d);
                 return d;
             };
-            if (n.period) add('s-period', n.period);
+            const label = [KIND_LABEL[n.kind], n.kind === 'event' ? n.period : ''].filter(Boolean).join('・');
+            if (label) add('s-period', label);
             add('s-title', n.title).addEventListener('click', () => select(n.id));
-            if (n.choice) add('s-choice', n.choice);
             if (n.condition) add('s-cond', n.condition);
+            if (n.effects) add('s-effects', n.effects);
+            if (n.result) add('s-result', n.result);
             if (n.summary) add('s-summary', n.summary);
+            if (n.remark) add('s-remark', n.remark);
+            if (n.goto && byId.has(n.goto)) {
+                const b = add('s-goto', `前往「${byId.get(n.goto).title}」`, 'button');
+                b.type = 'button';
+                b.addEventListener('click', () => select(n.goto));
+            }
             if (n.url) {
                 const a = add('s-link', '查看 wiki 原文 ↗', 'a');
                 a.href = n.url;
@@ -187,7 +229,7 @@
 
     // ---------- search ----------
 
-    const FIELDS = ['title', 'choice', 'condition', 'summary', 'period'];
+    const FIELDS = ['title', 'effects', 'result', 'condition', 'summary', 'remark', 'period'];
     let activeResult = -1;
 
     function search(q) {
@@ -199,11 +241,12 @@
             const hay = FIELDS.map(f => n[f] || '').join(' ').toLowerCase();
             if (terms.every(t => hay.includes(t))) {
                 // 標題命中的排前面
-                const score = terms.some(t => n.title.toLowerCase().includes(t)) ? 0 : 1;
+                const inTitle = terms.every(t => n.title.toLowerCase().includes(t));
+                const score = (inTitle ? 0 : 2) + (n.kind === 'ref' || /-ref$/.test(n.kind || '') ? 1 : 0) + (n.kind === 'event' ? -1 : 0);
                 hits.push({ n, score });
             }
         }
-        hits.sort((a, b) => a.score - b.score);
+        hits.sort((a, b) => a.score - b.score || a.n.title.length - b.n.title.length);
         return hits.map(h => h.n);
     }
 
@@ -238,6 +281,12 @@
             li.textContent = '找不到符合的節點';
             resultList.appendChild(li);
         }
+        if (hits.length > 50) {
+            const li = document.createElement('li');
+            li.className = 'empty';
+            li.textContent = `共 ${hits.length} 筆，只列出前 50 筆，可以多打幾個字縮小範圍`;
+            resultList.appendChild(li);
+        }
         hits.slice(0, 50).forEach(n => {
             const li = document.createElement('li');
             li.dataset.id = n.id;
@@ -246,7 +295,8 @@
             t.appendChild(highlight(n.title, q));
             const s = document.createElement('div');
             s.className = 'r-sub';
-            s.appendChild(highlight(pathTo(n.id).slice(0, -1).map(p => p.title).join(' › ') || '起點', q));
+            const trail = pathTo(n.id).slice(1, -1).map(p => p.title);
+            s.appendChild(highlight((trail.length > 4 ? ['…', ...trail.slice(-4)] : trail).join(' › ') || '起點', q));
             li.append(t, s);
             li.addEventListener('mousedown', e => {
                 e.preventDefault();
@@ -262,7 +312,11 @@
         select(id);
     }
 
-    searchInput.addEventListener('input', updateResults);
+    let searchTimer = 0;
+    searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(updateResults, 120);
+    });
     searchInput.addEventListener('focus', () => { if (searchInput.value.trim()) resultList.hidden = false; });
     searchInput.addEventListener('blur', () => { resultList.hidden = true; });
     searchInput.addEventListener('keydown', e => {
@@ -393,10 +447,20 @@
         .then(data => {
             loadData(data);
             render();
-            const m = location.hash.match(/node=([^&]+)/);
-            const id = m && decodeURIComponent(m[1]);
+            const m = location.hash.match(/^#([\w-]+)$/);
+            const id = m && m[1];
             if (id && byId.has(id)) select(id);
-            else fit();
+            else {
+                fit();
+                // 整棵樹太大時，改成從左邊的起點開始看
+                if (view.k < 0.6) {
+                    const r = svg.getBoundingClientRect();
+                    view.k = 0.8;
+                    view.x = 24;
+                    view.y = r.height / 2 - (ny(roots[0]) + NODE_H / 2) * view.k;
+                    applyView();
+                }
+            }
         })
         .catch(err => {
             const banner = document.getElementById('banner');
