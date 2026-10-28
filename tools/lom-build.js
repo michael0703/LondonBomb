@@ -65,6 +65,11 @@ function titles(html) {
     return out.map(t => t.split('\n').map(l => l.trim()).filter(Boolean).join('；')).filter(Boolean).join('；');
 }
 
+// 表格格子裡的 HTML：原始碼的換行只是排版，真正的換行是 <br> 和條列
+function cellText(html) {
+    return text(html.replace(/\s*\n\s*/g, ' ').replace(/<li>\s*/gi, '<br>• ').replace(/<\/li>/gi, ''));
+}
+
 function frontmatterTitle(md) {
     const m = md.match(/^---[\s\S]*?\ntitle:\s*(.+)\n[\s\S]*?---/);
     return m ? m[1].trim() : null;
@@ -113,6 +118,17 @@ function add(parent, title, extra = {}) {
 // slug 形如「simple/1-04-1-遊戲開局」或「detailed_description/3-08-2-武林大會」
 const eventUrl = slug => `${SITE}/event/${slug.split('/').map(encodeURIComponent).join('/')}.html`;
 
+// 一段 HTML／Markdown 裡連到事件頁的 slug（依出現順序、不重複）
+function eventLinks(html) {
+    const out = [];
+    html.replace(/\]\(\/event\/((?:simple|detailed_description)\/[^)#]+)[^)]*\)/g, (_, slug) => {
+        slug = decodeURIComponent(slug);
+        if (!out.includes(slug)) out.push(slug);
+        return _;
+    });
+    return out;
+}
+
 // ---------- 結局 ----------
 
 const endNodes = new Map();    // 汗青書編號 -> node
@@ -129,12 +145,17 @@ function buildEndings(root) {
         const info = text(row[2].html);
         const page = `event/ends/end-${no}.md`;
         let condition = '';
+        let links = eventLinks(row[2].html);
         if (fs.existsSync(path.join(DOCS, page))) {
             const md = read(page);
             const m = md.match(/## 條件與流程([\s\S]*?)(?=\n## |$)/);
-            if (m) condition = text(m[1]).slice(0, 1200);
+            if (m) {
+                condition = text(m[1]).slice(0, 2000);
+                links = links.concat(eventLinks(m[1]));
+            }
         }
         endNodes.set(no, add(ends, `結局 ${no}：${name}`, {
+            links,
             kind: 'end',
             summary: info,
             condition,
@@ -152,6 +173,7 @@ function buildEndings(root) {
             if (!no) continue;
             const page = `event/badends/badend-${no}.md`;
             badendNodes.set(no, add(bad, `生死簿 ${no}：${text(row[1].html)}`, {
+                links: eventLinks(row[4].html),
                 kind: 'badend',
                 summary: text(row[2].html),
                 condition: text(row[4].html),
@@ -448,162 +470,364 @@ function buildEventLoose(eventNode, md) {
     }
 }
 
-// ---------- 主支線簡易表格：年 › 月旬 › 路線 › 事件 ----------
+// ---------- 主支線簡易表格：事件地圖 ----------
+//
+// 時間由上往下，每條路線一欄。表格裡橫跨幾欄的格子＝那幾條路線共用的事件。
+// 每個事件出現一次就是一個節點；同一個事件頁（例如每月的唐門例會）只解析一次，存在 pages。
 
 const MONTHS = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
-const XUN = { 上: 1, 中: 2, 下: 3 };
+const YEARS = ['', '第一年', '第二年', '第三年', '第四年'];
+const XUN = ['上', '中', '下'];
+const monthNo = t => MONTHS.indexOf(t.replace(/月$/, ''));
 
-const eventFiles = new Map(); // slug -> 是否已放入樹
+const eventFiles = new Set();
 for (const dir of ['simple', 'detailed_description']) {
-    for (const f of fs.readdirSync(path.join(DOCS, 'event', dir))) {
-        if (f.endsWith('.md')) eventFiles.set(`${dir}/${f.slice(0, -3)}`, false);
-    }
+    for (const f of fs.readdirSync(path.join(DOCS, 'event', dir))) if (f.endsWith('.md')) eventFiles.add(`${dir}/${f.slice(0, -3)}`);
 }
-const pendingEvents = []; // [eventNode, slug]，等全部事件節點都建好後再展開（才能跨事件跳轉）
-const placed = new Map(); // slug -> eventNode
 
-function addEventLinks(parent, html) {
-    const lines = html.split(/<br\s*\/?>|\n/i).map(s => s.trim()).filter(Boolean);
-    for (const line of lines) {
+const placed = new Map(); // slug -> 事件頁的錨點節點（選項樹掛在底下）
+const pageOrder = [];     // 錨點節點，依第一次出現的順序
+
+function pageFor(slug, name) {
+    if (!eventFiles.has(slug)) return null;
+    if (!placed.has(slug)) {
+        const anchor = add(null, name, { kind: 'event', url: eventUrl(slug), slug });
+        placed.set(slug, anchor);
+        pageOrder.push(anchor);
+        if (!eventIndex.has(name)) eventIndex.set(name, anchor);
+    }
+    return placed.get(slug);
+}
+
+const sections = [];
+const slots = [];   // { section, year, month, xun, label }
+const events = [];  // { id, title, slot, lanes: [欄位], anchor, url, other }
+
+function cellEvents(html) {
+    const out = [];
+    for (const line of html.split(/<br\s*\/?>|\n/i).map(x => x.trim()).filter(Boolean)) {
         const link = line.match(/\[([^\]]+)\]\(([^)]+)\)/);
         const name = text(link ? link[1] : line);
         if (!name || name === '-') continue;
+        let anchor = null, url = '';
         if (link && /^\/event\/(simple|detailed_description)\//.test(link[2])) {
             const slug = decodeURIComponent(link[2].replace(/^\/event\//, '').replace(/#.*$/, ''));
-            if (placed.has(slug)) {
-                add(parent, `→ ${name}`, { kind: 'ref', goto: placed.get(slug).id });
-                continue;
-            }
-            const ev = add(parent, name, { kind: 'event', url: eventUrl(slug) });
-            if (eventFiles.has(slug)) {
-                eventFiles.set(slug, true);
-                pendingEvents.push([ev, slug]);
-            }
-            placed.set(slug, ev);
-            eventIndex.set(name, ev);
+            anchor = pageFor(slug, name);
+            url = eventUrl(slug);
         } else if (link) {
-            const url = /^https?:/.test(link[2]) ? link[2] : `${SITE}${link[2].replace(/#.*$/, '')}.html${(link[2].match(/#.*$/) || [''])[0]}`;
-            add(parent, name, { kind: 'event', url });
-        } else {
-            add(parent, name, { kind: 'event', summary: '（wiki 尚無此事件的詳細頁面）' });
+            url = /^https?:/.test(link[2]) ? link[2] : `${SITE}${link[2].replace(/#.*$/, '')}.html${(link[2].match(/#.*$/) || [''])[0]}`;
         }
+        out.push({ title: name, anchor, url });
+    }
+    return out;
+}
+
+function addEvents(slot, lanes, html, other = false) {
+    for (const e of cellEvents(html)) {
+        events.push({ id: 'e' + events.length, title: e.title, slot, lanes, anchor: e.anchor, url: e.url, other });
     }
 }
 
-function buildTimeline(root) {
+function buildTimeline() {
     const md = read('event/story-simple-table.md');
-    const sections = md.split(/\n## /).slice(1);
-    for (const sec of sections) {
+    let anytime = '';
+    for (const sec of md.split(/\n## /).slice(1)) {
         const title = sec.split('\n')[0].trim();
-        if (title === '備註') continue;
         const tableHtml = (sec.match(/<table[\s\S]*?<\/table>/i) || [])[0];
-        if (!tableHtml) continue;
-        const yearNode = add(root, title.replace(/:\s*/, '：'), { kind: 'year' });
+        if (!tableHtml || title === '備註') continue;
+        if (title === '任意時間') { anytime = tableHtml; continue; }
+
         const { rows, grid } = parseTable(tableHtml);
         const headerRows = rows.filter(r => r.length && r.every(c => c.header)).length;
-
-        if (title === '任意時間') {
-            for (const row of rows) for (const cell of row) addEventLinks(yearNode, cell.html.includes('](') ? cell.html : text(cell.html));
-            continue;
-        }
-
-        // 欄位名稱：多層表頭從上到下串起來
         const width = Math.max(...grid.map(r => r.length));
         const colName = [];
         for (let c = 0; c < width; c++) {
             const parts = [];
             for (let r = 0; r < headerRows; r++) {
                 const cell = grid[r] && grid[r][c];
-                if (cell) {
-                    const t = text(cell.html).replace(/\n/g, '');
-                    if (t && parts[parts.length - 1] !== t) parts.push(t);
-                }
+                const t = cell ? text(cell.html).replace(/\n/g, '') : '';
+                if (t && parts[parts.length - 1] !== t) parts.push(t);
             }
             colName[c] = parts.join('・');
         }
-
-        const byMonth = colName[1] === '上旬'; // 第一年型：列＝月份、欄＝旬
+        const byMonth = colName[1] === '上旬'; // 第一年型：列＝月份、欄＝旬，只有一條路線
+        const section = sections.length;
+        const lanes = byMonth ? ['主線'] : colName.slice(2);
+        while (lanes.length && !lanes[lanes.length - 1]) lanes.pop();
+        sections.push({ title: title.replace(/:\s*/, '：'), lanes });
+        let year = /第一年/.test(title) ? 1 : /第二年/.test(title) ? 2 : 3;
+        let lastMonth = 0;
+        const slotFor = (month, xun) => {
+            if (month < lastMonth) year++; // 「第三年十一月至第四年」跨年
+            lastMonth = month;
+            slots.push({ section, year, month, xun, label: `${YEARS[year]} ${MONTHS[month]}月${XUN[xun - 1]}旬` });
+            return slots.length - 1;
+        };
         let monthText = '';
         for (let r = headerRows; r < grid.length; r++) {
             const g = grid[r];
             if (!g || !g.length) continue;
-            monthText = text(g[0].html).replace(/月$/, '') || monthText;
+            monthText = text(g[0].html) || monthText;
             if (byMonth) {
                 for (let c = 1; c < g.length; c++) {
-                    if (!g[c] || !g[c].origin) continue;
-                    const h = g[c].html;
-                    if (text(h) === '-' || !text(h)) continue;
-                    const slot = add(yearNode, `${monthText}月${colName[c]}`, { kind: 'slot' });
-                    addEventLinks(slot, h);
+                    if (!g[c] || !g[c].origin || !text(g[c].html) || text(g[c].html) === '-') continue;
+                    addEvents(slotFor(monthNo(monthText), c), [0], g[c].html);
                 }
             } else {
                 if (!g[1]) continue; // rowspan 超出表格底部留下的空列
-                const xun = text(g[1].html);
-                const routeCols = colName.length - 2;
                 let slot = null;
                 for (let c = 2; c < g.length; c++) {
                     const cell = g[c];
-                    if (!cell || !cell.origin) continue;
-                    if (text(cell.html) === '-' || !text(cell.html)) continue;
-                    slot = slot || add(yearNode, `${monthText}月${xun}旬`, { kind: 'slot' });
-                    let parent = slot;
-                    if (cell.span < routeCols) {
-                        const names = colName.slice(c, c + cell.span);
-                        parent = add(slot, names.join('／'), { kind: 'route', summary: `路線：${names.join('、')}` });
-                    }
-                    addEventLinks(parent, cell.html);
+                    if (!cell || !cell.origin || !text(cell.html) || text(cell.html) === '-') continue;
+                    if (slot == null) slot = slotFor(monthNo(monthText), XUN.indexOf(text(g[1].html)) + 1);
+                    const lanesOf = Array.from({ length: cell.span }, (_, i) => c - 2 + i).filter(l => l < lanes.length);
+                    addEvents(slot, lanesOf, cell.html);
                 }
             }
         }
     }
 
-    // 表格沒列到的事件頁，依檔名（年-月-旬）放到對應時間下
-    // 詳細篇是簡易事件的整理，沒被表格連到就不另外列
-    const extra = [...eventFiles].filter(([slug, used]) => !used && slug.startsWith('simple/')).map(([slug]) => slug).sort();
-    if (extra.length) {
-        const other = add(root, '其他事件（表格未列）', { kind: 'year', summary: 'wiki 有事件頁，但主支線簡易表格沒有列出的事件，依檔名的時間排序。' });
-        for (const slug of extra) {
-            const m = slug.replace(/^simple\//, '').match(/^(\d+)-(\d+)-(\d+)-(.+)$/);
-            const name = m ? m[4] : slug;
-            const period = m && +m[1] ? `第${MONTHS[+m[1]]}年${MONTHS[+m[2]]}月${Object.keys(XUN)[+m[3] - 1] || ''}旬` : '';
-            const ev = add(other, name, { kind: 'event', period, url: eventUrl(slug) });
-            placed.set(slug, ev);
-            if (!eventIndex.has(name)) eventIndex.set(name, ev);
-            pendingEvents.push([ev, slug]);
-        }
+    // 「任意時間」與表格沒列到的事件頁放在最右邊的「其他」欄，依檔名的時間對到最接近的旬
+    const key = (y, m, x) => y * 1000 + (m < 4 && y > 1 ? m + 12 : m) * 10 + x; // 遊戲從四月開始
+    const slotKeys = slots.map(s => key(s.year, s.month, s.xun));
+    if (anytime) addEvents(0, [], anytime.replace(/<\/?t[dr][^>]*>/g, '<br>'), true);
+    const listed = new Set(placed.keys());
+    for (const slug of [...eventFiles].filter(s => s.startsWith('simple/') && !listed.has(s)).sort()) {
+        const m = slug.match(/^simple\/(\d+)-(\d+)-(\d+)-(.+)$/);
+        if (!m) continue;
+        const k = +m[1] ? key(+m[1], +m[2], +m[3]) : 0;
+        let slot = 0;
+        slotKeys.forEach((sk, i) => { if (sk <= k) slot = i; });
+        events.push({ id: 'e' + events.length, title: m[4], slot, lanes: [], anchor: pageFor(slug, m[4]), url: eventUrl(slug), other: true });
     }
+}
+
+// 事件之間的連線：同一欄裡依時間相鄰的事件相連；換章節時，上一章各欄的最後一個事件連到下一章各欄的第一個事件
+function buildEdges() {
+    const edges = new Map();
+    const byId = new Map(events.map(e => [e.id, e]));
+    // 路線分岔的地方（下一個事件只屬於部分路線）在邊上標出路線名稱
+    const link = (a, b) => {
+        if (a === b || edges.has(`${a}>${b}`)) return;
+        const from = byId.get(a), to = byId.get(b);
+        const sec = sections[slots[to.slot].section];
+        const sameSection = slots[from.slot].section === slots[to.slot].section;
+        const narrower = to.lanes.length < sec.lanes.length && (!sameSection || to.lanes.length < from.lanes.length);
+        edges.set(`${a}>${b}`, narrower ? to.lanes.map(l => sec.lanes[l]).join('／') : '');
+    };
+    let prevTails = [];
+    sections.forEach((sec, s) => {
+        const inSec = events.filter(e => !e.other && slots[e.slot].section === s);
+        const heads = [], tails = [];
+        sec.lanes.forEach((_, lane) => {
+            const seq = inSec.filter(e => e.lanes.includes(lane));
+            seq.forEach((e, i) => { if (i) link(seq[i - 1].id, e.id); });
+            if (seq.length) { heads.push(seq[0].id); tails.push(seq[seq.length - 1].id); }
+        });
+        for (const t of prevTails) for (const h of new Set(heads)) link(t, h);
+        prevTails = [...new Set(tails)];
+    });
+    return [...edges].map(([k, label]) => label ? [...k.split('>'), label] : k.split('>'));
+}
+
+// ---------- 目標：結緣攻略 ----------
+
+function buildRomances() {
+    const out = [];
+    for (const f of fs.readdirSync(path.join(DOCS, 'event', 'pursuit')).filter(f => /^girl\d+\.md$/.test(f)).sort()) {
+        const md = read(`event/pursuit/${f}`);
+        const title = frontmatterTitle(md);
+        const sec = (md.match(/## 結緣必要條件([\s\S]*?)(?=\n## |$)/) || [])[1];
+        if (!title || !sec) continue;
+        const steps = [];
+        for (const t of sec.match(/<table[\s\S]*?<\/table>/gi) || []) {
+            for (const row of parseTable(t).rows) {
+                if (row.length < 4 || /^編號$/.test(text(row[0].html))) continue;
+                steps.push({
+                    no: text(row[0].html),
+                    time: cellText(row[1].html).replace(/^•\s*/, '').replace(/\n•\s*/g, '；'),
+                    event: cellText(row[2].html).replace(/^•\s*/, '').replace(/\n•?\s*/g, '、'),
+                    links: eventLinks(row[2].html),
+                    todo: cellText(row[3].html),
+                    note: row[4] ? cellText(row[4].html) : '',
+                });
+            }
+        }
+        if (steps.length) out.push({ title, file: f.slice(0, -3), steps });
+    }
+    return out;
 }
 
 // ---------- main ----------
 
-const root = add(null, '活俠傳', { kind: 'root', summary: '劇情分支總覽。資料來自活俠傳 wiki。', url: `${SITE}/` });
-const timelineRoot = add(root, '劇情時間線', { kind: 'group', url: `${SITE}/event/story-simple-table.html` });
-buildEndings(root);
-buildTimeline(timelineRoot);
+const endRoot = add(null, '結局', { kind: 'group' });
+buildEndings(endRoot);
+buildTimeline();
+const edgeList = buildEdges();
+const romances = buildRomances();
+// 結緣攻略裡提到、但表格沒列出的事件頁也要能解析
+for (const r of romances) for (const st of r.steps) for (const slug of st.links) pageFor(slug, slug.replace(/^.*\/\d+-\d+-\d+-/, ''));
 
-for (const [ev, slug] of pendingEvents) {
-    const md = read(`event/${slug}.md`);
+for (const anchor of pageOrder) {
+    const md = read(`event/${anchor.slug}.md`);
     const t = frontmatterTitle(md);
-    if (t && t !== ev.title && !ev.title.startsWith('→')) ev.title = t;
-    buildEvent(ev, md);
+    if (t) anchor.title = t;
+    buildEvent(anchor, md);
 }
 
-// 補上每個節點的時間：沿著祖先找年與月旬
-const byId = new Map(nodes.map(n => [n.id, n]));
+// 錨點節點底下的選項樹轉成巢狀結構
+const children = new Map();
 for (const n of nodes) {
-    if (n.kind !== 'event' || n.period) continue;
-    let p = byId.get(n.parent);
-    let slot = '', year = '';
-    while (p) {
-        if (p.kind === 'slot' && !slot) slot = p.title;
-        if (p.kind === 'year') year = p.title;
-        p = byId.get(p.parent);
+    if (n.parent == null) continue;
+    if (!children.has(n.parent)) children.set(n.parent, []);
+    children.get(n.parent).push(n);
+}
+const pageIndex = new Map(pageOrder.map((a, i) => [a.id, i]));
+const endingIds = new Map(); // 結局節點 id -> 目標 id
+const goals = [];
+
+for (const n of [...endNodes.values(), ...badendNodes.values()]) {
+    const id = (n.kind === 'end' ? 'end' : 'bad') + n.title.match(/\d+/)[0];
+    endingIds.set(n.id, id);
+    goals.push({
+        id,
+        kind: n.kind,
+        title: n.title,
+        summary: n.summary,
+        condition: n.condition,
+        url: n.url,
+        pages: (n.links || []).map(slug => placed.has(slug) ? pageIndex.get(placed.get(slug).id) : null).filter(x => x != null),
+    });
+}
+romances.forEach(r => {
+    goals.unshift({
+        id: r.file,
+        kind: 'romance',
+        title: r.title,
+        url: `${SITE}/event/pursuit/${r.file}.html`,
+        steps: r.steps.map(st => ({
+            no: st.no,
+            time: st.time,
+            event: st.event,
+            todo: st.todo,
+            note: st.note,
+            pages: st.links.map(slug => placed.has(slug) ? pageIndex.get(placed.get(slug).id) : null).filter(x => x != null),
+        })),
+    });
+});
+
+// 事件頁的選項樹轉成流程圖：節點＝子事件（☯事件、🆚戰鬥、各階段）與結局，邊＝一路上的選項／骰子結果
+const CHOICE_HEADER = /^(選擇|選項|天運|天命|閒聊|抉擇|👉)/;
+
+function buildFlow(anchor, endsFound) {
+    const fnodes = [{ t: anchor.title, k: 'start' }];
+    const fedges = [];
+    const owner = new Map(); // 決策節點 id -> 所在的流程節點
+    const flowOf = new Map(); // 子事件的決策節點 id -> 流程節點
+    const ends = new Map();
+    const newNode = (n, extra = {}) => {
+        const f = Object.assign({ t: n.title }, extra);
+        if (n.effects) f.e = n.effects;
+        if (n.condition) f.c = n.condition;
+        if (n.summary) f.s = n.summary;
+        if (n.remark) f.m = n.remark;
+        fnodes.push(f);
+        return fnodes.length - 1;
+    };
+    const edge = (from, to, steps) => fedges.push(steps.length ? [from, to, steps] : [from, to]);
+    const step = (header, opt) => {
+        const st = { o: opt.title };
+        if (header) st.h = header.title;
+        if (opt.effects) st.e = opt.effects;
+        if (opt.result) st.r = opt.result;
+        return st;
+    };
+    const endNode = (goalId, title, kind) => {
+        if (!ends.has(goalId)) ends.set(goalId, fnodes.push({ t: title, k: kind, goal: goalId }) - 1);
+        endsFound.add(goalId);
+        return ends.get(goalId);
+    };
+
+    function target(from, n, steps) {
+        // n 是選項、分歧或跳轉節點走到的下一個節點
+        if (n.kind === 'decision') {
+            if (CHOICE_HEADER.test(n.title)) { owner.set(n.id, from); walk(n, from, steps); return; }
+            const idx = newNode(n, { k: /^🆚|對決|決鬥/.test(n.title) ? 'battle' : 'event' });
+            flowOf.set(n.id, idx);
+            owner.set(n.id, idx);
+            edge(from, idx, steps);
+            walk(n, idx, []);
+        } else if (n.kind === 'ref') {
+            if (flowOf.has(n.goto)) edge(from, flowOf.get(n.goto), steps);
+            else if (owner.has(n.goto)) edge(from, owner.get(n.goto), steps.concat({ o: n.title }));
+            else if (pageIndex.has(n.goto)) edge(from, fnodes.push({ t: n.title.replace(/^→\s*/, ''), k: 'page', page: pageIndex.get(n.goto) }) - 1, steps);
+        } else if (/-ref$/.test(n.kind) && endingIds.has(n.goto)) {
+            const goal = endingIds.get(n.goto);
+            const g = nodes.find(x => x.id === n.goto);
+            edge(from, endNode(goal, g.title, n.kind === 'badend-ref' ? 'badend' : 'end'), steps);
+        }
     }
-    if (year || slot) n.period = [year, slot].filter(Boolean).join(' ');
+
+    function walk(n, from, steps) {
+        const kids = children.get(n.id) || [];
+        const opts = kids.filter(k => k.kind === 'option' || k.kind === 'branch');
+        const rest = kids.filter(k => !(k.kind === 'option' || k.kind === 'branch'));
+        const header = n.kind === 'decision' && CHOICE_HEADER.test(n.title) ? n : null;
+        for (const o of opts) {
+            const sub = children.get(o.id) || [];
+            const st = steps.concat(step(header, o));
+            if (sub.length) walk(o, from, st);
+            else if (!rest.length) {
+                // 沒有後續的選項：事件在這裡結束
+                const idx = fnodes.push({ t: o.result ? o.result.replace(/^→\s*/, '') : '事件結束', k: 'stop' }) - 1;
+                edge(from, idx, st);
+            }
+        }
+        // 標頭的箭頭或接續區塊：不論選哪個選項都會走到這裡
+        for (const c of rest) {
+            const st = header && opts.length ? steps.concat({ h: header.title, o: '（任一選項）' }) : steps;
+            target(from, c, st);
+        }
+    }
+
+    walk(anchor, 0, []);
+
+    // 同一個節點走到「事件結束」的多條邊合併成一條，其他選法放在 alts；自己連回自己的邊（內部合流）不畫
+    const merged = [];
+    const stopEdge = new Map();
+    for (const e of fedges) {
+        const [from, to, steps = []] = e;
+        if (from === to) continue;
+        if (fnodes[to].k === 'stop') {
+            const k = `${from}|${fnodes[to].t}`;
+            if (stopEdge.has(k)) {
+                const m = stopEdge.get(k);
+                (m[3] = m[3] || [m[2] || []]).push(steps);
+                fnodes[to].dead = true;
+                continue;
+            }
+            stopEdge.set(k, e);
+        }
+        merged.push(e);
+    }
+    // 拿掉合併後沒人連到的節點，重新編號
+    const keep = fnodes.map((n, i) => i === 0 || merged.some(e => e[1] === i));
+    const remap = [];
+    const out = [];
+    fnodes.forEach((n, i) => { if (keep[i]) { remap[i] = out.length; delete n.dead; out.push(n); } });
+    return { n: out, ed: merged.filter(e => keep[e[0]]).map(e => [remap[e[0]], remap[e[1]], ...e.slice(2)]) };
 }
 
-const kinds = {};
-for (const n of nodes) kinds[n.kind] = (kinds[n.kind] || 0) + 1;
+const pages = pageOrder.map(a => {
+    const ends = new Set();
+    const p = { title: a.title, url: a.url };
+    if (a.condition) p.condition = a.condition;
+    if (a.summary) p.summary = a.summary;
+    if (a.remark) p.remark = a.remark;
+    p.flow = buildFlow(a, ends);
+    if (ends.size) p.goals = [...ends];
+    return p;
+});
 
 const data = {
     source: {
@@ -613,10 +837,20 @@ const data = {
         commit,
         license: 'CC BY-NC-SA 4.0',
     },
-    note: '資料整理自活俠傳 wiki（CC BY-NC-SA 4.0），內容以 wiki 為準。',
     generatedAt: new Date().toISOString(),
-    nodes,
+    sections,
+    slots: slots.map(s => ({ section: s.section, label: s.label })),
+    events: events.map(e => {
+        const o = { id: e.id, title: e.title, slot: e.slot, lanes: e.lanes };
+        if (e.anchor) o.page = pageIndex.get(e.anchor.id);
+        else if (e.url) o.url = e.url;
+        if (e.other) o.other = true;
+        return o;
+    }),
+    edges: edgeList,
+    pages,
+    goals,
 };
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, JSON.stringify(data));
-console.log(`寫入 ${path.relative(process.cwd(), OUT)}：${nodes.length} 個節點`, kinds);
+console.log(`寫入 ${path.relative(process.cwd(), OUT)}：${events.length} 個事件、${edgeList.length} 條連線、${pages.length} 個事件頁、${goals.length} 個目標（${romances.length} 份結緣攻略）`);
