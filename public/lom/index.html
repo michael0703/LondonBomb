@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>活俠傳劇情樹 | Legend of Mortal Story Tree</title>
+    <link rel="stylesheet" href="style.css">
+    <script>
+        try { var t = localStorage.getItem('portal_theme'); var h = new Date().getHours(); if (t === 'light' || (t !== 'dark' && h >= 6 && h < 18)) document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}
+    </script>
+</head>
+<body>
+    <header class="topbar">
+        <a class="back" href="/">← 入口</a>
+        <h1>活俠傳劇情樹</h1>
+        <div class="search">
+            <input id="search" type="search" placeholder="搜尋事件、選項、條件…" autocomplete="off">
+            <ul id="results" class="results" hidden></ul>
+        </div>
+        <div class="zoom">
+            <button id="zoom-in" type="button" title="放大">＋</button>
+            <button id="zoom-out" type="button" title="縮小">－</button>
+            <button id="zoom-fit" type="button" title="全部顯示">⤢</button>
+        </div>
+    </header>
+
+    <div id="banner" class="banner" hidden></div>
+
+    <main class="layout">
+        <section class="canvas" id="canvas">
+            <svg id="tree" xmlns="http://www.w3.org/2000/svg">
+                <g id="viewport">
+                    <g id="edges"></g>
+                    <g id="nodes"></g>
+                </g>
+            </svg>
+        </section>
+
+        <aside class="panel" id="panel">
+            <div class="panel-empty" id="panel-empty">
+                <p>點樹上的節點，或用上方搜尋，就會顯示從開局走到那裡的完整路線。</p>
+                <p class="hint">拖曳平移、滾輪縮放；節點旁的 ± 可以收合分支。</p>
+            </div>
+            <div id="route" hidden>
+                <h2 id="route-title"></h2>
+                <p class="route-meta" id="route-meta"></p>
+                <ol class="steps" id="steps"></ol>
+            </div>
+        </aside>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

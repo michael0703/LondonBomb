@@ -1,0 +1,164 @@
+{
+  "demo": true,
+  "note": "目前顯示的是示範資料（不是遊戲內容）。爬取活俠傳 wiki 後會換成真實劇情分支。",
+  "source": null,
+  "nodes": [
+    {
+      "id": "start",
+      "parent": null,
+      "title": "示範：開局",
+      "period": "第 1 段",
+      "summary": "示範用的起點節點，等爬到 wiki 資料後會被真實劇情取代。"
+    },
+    {
+      "id": "nA",
+      "parent": "start",
+      "title": "示範分支 A",
+      "period": "第 2 段",
+      "choice": "選項 A",
+      "condition": "示範條件 A"
+    },
+    {
+      "id": "nA1",
+      "parent": "nA",
+      "title": "示範分支 A-1",
+      "period": "第 3 段",
+      "choice": "選項 A-1"
+    },
+    {
+      "id": "nA11",
+      "parent": "nA1",
+      "title": "示範結局 A-1-1",
+      "period": "結局",
+      "choice": "選項 A-1-1"
+    },
+    {
+      "id": "nA12",
+      "parent": "nA1",
+      "title": "示範結局 A-1-2",
+      "period": "結局",
+      "choice": "選項 A-1-2"
+    },
+    {
+      "id": "nA2",
+      "parent": "nA",
+      "title": "示範分支 A-2",
+      "period": "第 3 段",
+      "choice": "選項 A-2"
+    },
+    {
+      "id": "nA21",
+      "parent": "nA2",
+      "title": "示範結局 A-2-1",
+      "period": "結局",
+      "choice": "選項 A-2-1"
+    },
+    {
+      "id": "nA22",
+      "parent": "nA2",
+      "title": "示範結局 A-2-2",
+      "period": "結局",
+      "choice": "選項 A-2-2"
+    },
+    {
+      "id": "nB",
+      "parent": "start",
+      "title": "示範分支 B",
+      "period": "第 2 段",
+      "choice": "選項 B",
+      "condition": "示範條件 B"
+    },
+    {
+      "id": "nB1",
+      "parent": "nB",
+      "title": "示範分支 B-1",
+      "period": "第 3 段",
+      "choice": "選項 B-1"
+    },
+    {
+      "id": "nB11",
+      "parent": "nB1",
+      "title": "示範結局 B-1-1",
+      "period": "結局",
+      "choice": "選項 B-1-1"
+    },
+    {
+      "id": "nB12",
+      "parent": "nB1",
+      "title": "示範結局 B-1-2",
+      "period": "結局",
+      "choice": "選項 B-1-2"
+    },
+    {
+      "id": "nB2",
+      "parent": "nB",
+      "title": "示範分支 B-2",
+      "period": "第 3 段",
+      "choice": "選項 B-2"
+    },
+    {
+      "id": "nB21",
+      "parent": "nB2",
+      "title": "示範結局 B-2-1",
+      "period": "結局",
+      "choice": "選項 B-2-1"
+    },
+    {
+      "id": "nB22",
+      "parent": "nB2",
+      "title": "示範結局 B-2-2",
+      "period": "結局",
+      "choice": "選項 B-2-2"
+    },
+    {
+      "id": "nC",
+      "parent": "start",
+      "title": "示範分支 C",
+      "period": "第 2 段",
+      "choice": "選項 C",
+      "condition": "示範條件 C"
+    },
+    {
+      "id": "nC1",
+      "parent": "nC",
+      "title": "示範分支 C-1",
+      "period": "第 3 段",
+      "choice": "選項 C-1"
+    },
+    {
+      "id": "nC11",
+      "parent": "nC1",
+      "title": "示範結局 C-1-1",
+      "period": "結局",
+      "choice": "選項 C-1-1"
+    },
+    {
+      "id": "nC12",
+      "parent": "nC1",
+      "title": "示範結局 C-1-2",
+      "period": "結局",
+      "choice": "選項 C-1-2"
+    },
+    {
+      "id": "nC2",
+      "parent": "nC",
+      "title": "示範分支 C-2",
+      "period": "第 3 段",
+      "choice": "選項 C-2"
+    },
+    {
+      "id": "nC21",
+      "parent": "nC2",
+      "title": "示範結局 C-2-1",
+      "period": "結局",
+      "choice": "選項 C-2-1"
+    },
+    {
+      "id": "nC22",
+      "parent": "nC2",
+      "title": "示範結局 C-2-2",
+      "period": "結局",
+      "choice": "選項 C-2-2"
+    }
+  ]
+}
