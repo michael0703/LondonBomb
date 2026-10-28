@@ -30,14 +30,14 @@
     const firstEventOfPage = new Map();
     const goalById = new Map();
     const pageGoals = new Map(); // 結局 id -> 會走到它的事件頁
+    const edgeLabels = new Map(); // 「a>b」 -> 邊上的路線名稱（沒有就是空字串）
 
-    let mode = 'map';        // 'map' | 'flow'
+    let mode = 'home';       // 'home' | 'line' | 'map' | 'flow'
     let flowPage = null;     // 流程圖的事件頁編號
     let flowFrom = null;     // 從哪個地圖事件點進來
     let selected = null;     // 地圖：事件 id；流程圖：節點編號
     let goal = null;         // 目前選的目標
     const view = { x: 0, y: 0, k: 1 };
-    const saved = { x: 0, y: 0, k: 1 }; // 離開地圖時的視角
 
     // ---------- 小工具 ----------
 
@@ -86,7 +86,14 @@
             preds.set(ev.id, []);
             if (ev.page != null && !firstEventOfPage.has(ev.page)) firstEventOfPage.set(ev.page, ev.id);
         }
-        for (const [a, b] of data.edges) preds.get(b).push(a);
+        for (const [a, b, label] of data.edges) {
+            preds.get(b).push(a);
+            edgeLabels.set(`${a}>${b}`, label || '');
+        }
+        data.events
+            .map((ev, i) => ({ id: ev.id, key: ev.slot * 10000 + i }))
+            .sort((a, b) => a.key - b.key)
+            .forEach((x, i) => eventOrder.set(x.id, i));
         for (const g of data.goals) goalById.set(g.id, g);
         data.pages.forEach((p, i) => (p.goals || []).forEach(g => {
             if (!pageGoals.has(g)) pageGoals.set(g, []);
@@ -94,6 +101,7 @@
         }));
         buildSearchIndex();
         buildGoalBar();
+        buildHome();
         layoutMap();
 
         const src = document.getElementById('source');
@@ -348,7 +356,8 @@
 
     function render() {
         if (mode === 'map') renderMap();
-        else renderFlow();
+        else if (mode === 'line') renderLine();
+        else if (mode === 'flow') renderFlow();
     }
 
     // ---------- 右側面板 ----------
@@ -373,8 +382,8 @@
 
     function showIntro() {
         panelClear();
-        panel.appendChild(h('p', 'intro', '每個節點是一個事件，時間由上往下排，每條路線一欄。點事件會亮出從開局走到那裡的路線；點「打開事件流程圖」可以看事件裡每個選項、骰子結果會走到哪裡。'));
-        panel.appendChild(h('p', 'hint', '想達成某個結局或結緣，可以點上方的結緣攻略，或直接搜尋結局名稱。'));
+        panel.appendChild(h('p', 'intro', '用上方搜尋事件、選項或結局，或選一條結緣攻略，畫面就只會顯示那條路線。'));
+        panel.appendChild(h('p', 'hint', '每個節點是一個事件；點事件看詳細內容，按「打開事件流程圖」可以看事件裡每個選項、骰子結果會走到哪裡。滾輪縮放、拖曳移動。'));
     }
 
     function showEvent(ev) {
@@ -382,6 +391,20 @@
         const page = pageOf(ev);
         panel.appendChild(h('div', 'p-kicker', `${data.slots[ev.slot].label}・${laneNames(ev).join('、')}${isAllLanes(ev) && laneNames(ev).length > 1 ? '（各路線共通）' : ''}`));
         panel.appendChild(h('h2', '', ev.title));
+        // 在結緣線上點事件：先列出攻略這一步要做什麼
+        const g = mode !== 'map' && line && line.kind === 'goal' ? line.goal : null;
+        const step = g && g.steps && g.steps.find(st => st.pages.includes(ev.page));
+        if (step) {
+            const box = h('div', 'goal-box');
+            box.appendChild(h('div', 's-head', `${g.title}・第 ${step.no} 步`));
+            info(box, 's-todo', step.todo);
+            info(box, 's-remark', step.note);
+            const b = h('button', 'chip', '回到攻略總覽');
+            b.type = 'button';
+            b.addEventListener('click', () => { selected = null; renderLine(); showGoal(g); });
+            box.appendChild(b);
+            panel.appendChild(box);
+        }
         if (page) {
             info(panel, 's-cond', page.condition);
             info(panel, 's-summary', page.summary);
@@ -413,7 +436,8 @@
             anc.add(id);
             stack.push(...preds.get(id));
         }
-        if (anc.size) {
+        // 單線畫面已經把路線畫出來了，只有在完整地圖裡才列出來
+        if (anc.size && mode === 'map') {
             panel.appendChild(h('h3', '', `怎麼走到這裡（經過 ${anc.size} 個事件）`));
             const ol = h('ol', 'steps');
             for (const e of data.events) {
@@ -554,64 +578,248 @@
     }
 
     // ---------- 狀態切換 ----------
+    // home：只有搜尋與結緣攻略；line：只顯示一條線；map：完整地圖；flow：事件流程圖
 
-    function setCrumb() {
-        crumb.hidden = mode !== 'flow';
-        if (mode !== 'flow') return;
-        document.getElementById('crumb-title').textContent = data.pages[flowPage].title;
+    let line = null;               // { kind: 'goal', goal } 或 { kind: 'event', target }
+    let lineLayout = new Map();    // 事件 id -> 位置
+    const routeFilter = new Map(); // 章節 -> 只看哪條路線
+    let back = null;               // 從流程圖返回時要恢復的狀態
+
+    function setMode(m) {
+        mode = m;
+        document.getElementById('home').hidden = m !== 'home';
+        document.getElementById('goalbar').hidden = m === 'home';
+        svg.style.visibility = m === 'home' ? 'hidden' : '';
+        setBar();
     }
 
-    function selectEvent(id, { center = true } = {}) {
-        if (mode !== 'map') backToMap(false);
-        goal = null;
-        selected = id;
-        updateGoalBar();
-        renderMap();
-        showEvent(eventById.get(id));
-        if (center) {
-            view.k = Math.max(view.k, 0.85);
-            const p = mapLayout.pos.get(id);
-            centerOn(p.x, p.y + NODE_H / 2);
+    function barButton(label, fn, cls) {
+        const b = h('button', cls || '', label);
+        b.type = 'button';
+        b.addEventListener('click', fn);
+        return b;
+    }
+
+    function setBar() {
+        crumb.textContent = '';
+        crumb.hidden = mode === 'home';
+        if (mode === 'flow') {
+            crumb.append(barButton('← 返回', goBack), h('span', 'bar-title', '事件流程圖：' + data.pages[flowPage].title));
+        } else if (mode === 'map') {
+            crumb.append(barButton('← 首頁', goHome), h('span', 'bar-title', '完整地圖'));
+        } else if (mode === 'line') {
+            const items = lineItems();
+            const title = line.kind === 'goal' ? line.goal.title : `走到「${eventById.get(line.target).title}」的路線`;
+            crumb.append(barButton('← 首頁', goHome), h('span', 'bar-title', `${title}（${items.length} 個事件）`), barButton('顯示完整地圖', showFullMap, 'ghost'));
+            if (line.kind === 'event') {
+                // 有分路線的時期，可以只看其中一條
+                const target = eventById.get(line.target);
+                for (const s of lineSections()) {
+                    const sec = data.sections[s];
+                    const row = h('div', 'bar-routes');
+                    row.appendChild(h('span', 'bar-label', sec.title + '：'));
+                    const pick = lane => {
+                        if (lane == null) routeFilter.delete(s);
+                        else routeFilter.set(s, lane);
+                        renderLine();
+                        setBar();
+                        showEvent(target);
+                        lineView(line.target);
+                    };
+                    row.appendChild(barButton('全部路線', () => pick(null), 'chip' + (routeFilter.has(s) ? '' : ' active')));
+                    sec.lanes.forEach((name, l) => row.appendChild(barButton(name.split('・').pop(), () => pick(l), 'chip' + (routeFilter.get(s) === l ? ' active' : ''))));
+                    crumb.appendChild(row);
+                }
+            }
         }
-        setHash(id);
     }
 
-    function selectGoal(id) {
+    const eventOrder = new Map(); // 事件 id -> 在時間軸上的順序
+    const byTime = (a, b) => eventOrder.get(a) - eventOrder.get(b);
+
+    function ancestors(id) {
+        const out = new Set();
+        const stack = [...preds.get(id)];
+        while (stack.length) {
+            const x = stack.pop();
+            if (out.has(x)) continue;
+            out.add(x);
+            stack.push(...preds.get(x));
+        }
+        return out;
+    }
+
+    // 走到目標事件之前，哪些時期的事件分屬不同路線
+    function lineSections() {
+        const target = eventById.get(line.target);
+        const out = new Set();
+        for (const id of ancestors(line.target)) {
+            const ev = eventById.get(id);
+            if (!ev.other && !isAllLanes(ev)) out.add(data.slots[ev.slot].section);
+        }
+        if (!target.other && !isAllLanes(target)) out.delete(data.slots[target.slot].section);
+        return [...out].sort((a, b) => a - b);
+    }
+
+    function lineItems() {
+        if (line.kind === 'goal') {
+            const g = line.goal;
+            const items = [];
+            const seen = new Set();
+            const push = (id, mark) => {
+                if (!id || seen.has(id)) return;
+                seen.add(id);
+                items.push({ id, mark });
+            };
+            if (g.steps) g.steps.forEach(st => st.pages.forEach(p => push(firstEventOfPage.get(p), st.no)));
+            else [...(g.pages || []), ...(pageGoals.get(g.id) || [])].map(p => firstEventOfPage.get(p)).filter(Boolean).sort(byTime).forEach(id => push(id));
+            return items;
+        }
+        const ids = [...ancestors(line.target), line.target].filter(id => {
+            const ev = eventById.get(id);
+            if (id === line.target || ev.other) return true;
+            const s = data.slots[ev.slot].section;
+            return !routeFilter.has(s) || ev.lanes.includes(routeFilter.get(s));
+        });
+        return ids.sort(byTime).map(id => ({ id }));
+    }
+
+    const LINE_W = 300;
+    const LINE_ROW = ROW_H + 22;
+
+    function renderLine() {
+        clear();
+        svg.classList.remove('has-path');
+        const items = lineItems();
+        lineLayout = new Map(items.map((it, i) => [it.id, { x: 0, y: i * LINE_ROW }]));
+        for (let i = 1; i < items.length; i++) {
+            const a = items[i - 1].id, b = items[i].id;
+            const pa = lineLayout.get(a), pb = lineLayout.get(b);
+            const direct = edgeLabels.has(`${a}>${b}`);
+            el('path', { d: curve(0, pa.y + NODE_H, 0, pb.y), class: 'edge' + (direct ? '' : ' extra') }, edgeLayer);
+            const label = direct ? edgeLabels.get(`${a}>${b}`) : line.kind === 'goal' ? '中間還有其他事件' : '';
+            if (label) edgeLabel(0, (pa.y + NODE_H + pb.y) / 2, clip(label.split('／')[0].split('・').pop(), 12), label, direct ? 'route' : '');
+        }
+        for (const it of items) {
+            const ev = eventById.get(it.id);
+            const p = lineLayout.get(it.id);
+            let cls = 'kind-event';
+            if (!pageOf(ev)) cls += ' no-page';
+            if (it.id === selected) cls += ' selected';
+            if (matchIds.has(it.id)) cls += ' match';
+            const lanes = isAllLanes(ev) ? '' : '・' + laneNames(ev).map(n => n.split('・').pop()).join('／');
+            nodeBox(it.id, 0, p.y, LINE_W, ev.title, data.slots[ev.slot].label + lanes, cls, ev.title);
+            if (it.mark) {
+                const g = el('g', { class: 'mark', transform: `translate(${-LINE_W / 2},${p.y})` }, labelLayer);
+                el('circle', { r: 12 }, g);
+                el('text', { 'text-anchor': 'middle', 'dominant-baseline': 'central' }, g).textContent = it.mark;
+            }
+        }
+        applyView();
+    }
+
+    function lineView(focusId) {
+        const r = svg.getBoundingClientRect();
+        view.k = Math.min(1, (r.width - 40) / (LINE_W + 60));
+        view.x = r.width / 2;
+        if (focusId && lineLayout.has(focusId)) view.y = r.height * 0.6 - (lineLayout.get(focusId).y + NODE_H / 2) * view.k;
+        else view.y = 50;
+        applyView();
+    }
+
+    function goHome() {
+        line = null;
+        goal = null;
+        selected = null;
+        setMode('home');
+        updateGoalBar();
+        showIntro();
+        setHash('');
+    }
+
+    function showGoalLine(id) {
         const g = goalById.get(id);
         if (!g) return;
-        if (mode !== 'map') backToMap(false);
+        line = { kind: 'goal', goal: g };
         goal = g;
         selected = null;
+        setMode('line');
         updateGoalBar();
-        renderMap();
+        renderLine();
         showGoal(g);
-        // 移到第一個有標出來的事件
-        const firstPage = g.steps ? (g.steps.find(st => st.pages.length) || { pages: [] }).pages[0] : (g.pages || [])[0];
-        const evId = firstPage != null && firstEventOfPage.get(firstPage);
-        if (evId) {
-            view.k = Math.max(Math.min(view.k, 0.7), 0.5);
-            const p = mapLayout.pos.get(evId);
-            // 寬的共通事件只對準左側（編號標在左上角）
-            centerOn(p.x - p.w / 2 + NODE_W / 2, p.y + NODE_H / 2 + 120);
-        }
+        lineView();
         setHash('g-' + id);
     }
 
+    function showEventLine(id) {
+        line = { kind: 'event', target: id };
+        routeFilter.clear();
+        goal = null;
+        selected = id;
+        setMode('line');
+        updateGoalBar();
+        renderLine();
+        showEvent(eventById.get(id));
+        lineView(id);
+        setHash(id);
+    }
+
+    function showFullMap() {
+        const focus = selected;
+        setMode('map');
+        renderMap();
+        const r = svg.getBoundingClientRect();
+        view.k = Math.min(0.85, r.width / (mapLayout.otherX + NODE_W / 2 - mapLayout.left + 160));
+        if (focus && mapLayout.pos.has(focus)) {
+            const p = mapLayout.pos.get(focus);
+            centerOn(p.x, p.y + NODE_H / 2);
+        } else {
+            view.x = 12 - (mapLayout.left - 140) * view.k;
+            view.y = 20;
+            applyView();
+        }
+    }
+
+    // 點事件：完整地圖裡就地標出路線；單線畫面裡如果在線上就選它，否則改顯示走到它的路線
+    function selectEvent(id, { center = true } = {}) {
+        if (mode === 'map') {
+            selected = id;
+            renderMap();
+            showEvent(eventById.get(id));
+            if (center) {
+                view.k = Math.max(view.k, 0.85);
+                const p = mapLayout.pos.get(id);
+                centerOn(p.x, p.y + NODE_H / 2);
+            }
+            setHash(id);
+        } else if (mode === 'line' && lineLayout.has(id)) {
+            selected = id;
+            renderLine();
+            showEvent(eventById.get(id));
+        } else {
+            showEventLine(id);
+        }
+    }
+
+    function selectGoal(id) {
+        showGoalLine(id);
+    }
+
     function openFlow(page, fromEvent, node = null) {
-        if (mode === 'map') Object.assign(saved, view);
+        if (mode !== 'flow') back = { mode, line, selected, goal, view: Object.assign({}, view) };
         mode = 'flow';
         flowPage = page;
         flowFrom = fromEvent;
         selected = null;
         layoutFlow(page);
-        setCrumb();
+        setMode('flow');
         if (node != null) selectFlowNode(node);
         else {
             renderFlow();
             showFlowNode(0);
             view.k = 0.9;
             view.x = svg.getBoundingClientRect().width / 2 - flowLayout.pos[0].x * view.k;
-            view.y = 30;
+            view.y = 60;
             applyView();
             setHash(`f-${page}`);
         }
@@ -626,18 +834,28 @@
         setHash(`f-${flowPage}-${i}`);
     }
 
-    function backToMap(restore = true) {
-        mode = 'map';
-        setCrumb();
-        selected = null;
-        if (restore) {
-            Object.assign(view, saved);
-            if (flowFrom) selectEvent(flowFrom, { center: false });
-            else { renderMap(); showIntro(); setHash(''); }
+    function goBack() {
+        const b = back || { mode: 'home' };
+        back = null;
+        if (b.mode === 'home' || (b.mode === 'line' && !b.line)) {
+            // 從首頁直接打開的流程圖：回到這個事件的路線
+            if (flowFrom) return showEventLine(flowFrom);
+            return goHome();
         }
+        line = b.line;
+        goal = b.goal;
+        selected = b.selected;
+        setMode(b.mode);
+        updateGoalBar();
+        if (b.mode === 'line') renderLine();
+        else renderMap();
+        if (selected) showEvent(eventById.get(selected));
+        else if (goal) showGoal(goal);
+        else showIntro();
+        Object.assign(view, b.view);
+        applyView();
+        setHash(selected || (goal ? 'g-' + goal.id : ''));
     }
-
-    document.getElementById('crumb-back').addEventListener('click', () => backToMap());
 
     // ---------- 結緣攻略快捷鍵 ----------
 
@@ -660,11 +878,21 @@
     }
 
     function clearGoal() {
-        goal = null;
-        updateGoalBar();
-        renderMap();
-        showIntro();
-        setHash('');
+        goHome();
+    }
+
+    // 首頁：不畫地圖，只放搜尋提示、結緣攻略與結局清單
+    function buildHome() {
+        const love = document.getElementById('home-romance');
+        const ends = document.getElementById('home-ends');
+        const bads = document.getElementById('home-badends');
+        for (const g of data.goals) {
+            const b = h('button', 'chip kind-' + g.kind, g.kind === 'romance' ? g.title.replace('結緣攻略', '') : g.title);
+            b.type = 'button';
+            b.addEventListener('click', () => showGoalLine(g.id));
+            (g.kind === 'romance' ? love : g.kind === 'end' ? ends : bads).appendChild(b);
+        }
+        document.getElementById('home-map').addEventListener('click', showFullMap);
     }
 
     // ---------- 搜尋 ----------
@@ -813,6 +1041,8 @@
     let pinchDist = 0;
 
     canvas.addEventListener('pointerdown', e => {
+        // 首頁與上方列的按鈕不能被拖曳攔走點擊
+        if (e.target.closest('#home, #crumb')) return;
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         dragMoved = 0;
         if (pointers.size === 2) {
@@ -858,29 +1088,24 @@
         const hit = document.elementFromPoint(e.clientX, e.clientY);
         const node = hit && hit.closest('.node');
         if (!node) return;
-        if (mode === 'map') selectEvent(node.dataset.id, { center: false });
-        else selectFlowNode(+node.dataset.id);
+        if (mode === 'flow') selectFlowNode(+node.dataset.id);
+        else selectEvent(node.dataset.id, { center: false });
     });
 
     canvas.addEventListener('dblclick', e => {
-        if (mode !== 'map') return;
+        if (mode !== 'map' && mode !== 'line') return;
         const hit = document.elementFromPoint(e.clientX, e.clientY);
         const node = hit && hit.closest('.node');
         const ev = node && eventById.get(node.dataset.id);
         if (ev && ev.page != null) openFlow(ev.page, ev.id);
     });
 
-    // 滾輪捲動畫面；按住 Ctrl（或觸控板雙指縮放）時縮放
+    // 滾輪縮放（以滑鼠位置為中心）；觸控板的雙指縮放會帶 ctrlKey，數值比較小
     canvas.addEventListener('wheel', e => {
         e.preventDefault();
-        if (e.ctrlKey || e.metaKey) {
-            const r = svg.getBoundingClientRect();
-            zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top);
-        } else {
-            view.x -= e.shiftKey ? e.deltaY : e.deltaX;
-            view.y -= e.shiftKey ? 0 : e.deltaY;
-            applyView();
-        }
+        const r = svg.getBoundingClientRect();
+        const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+        zoomAt(Math.exp(-delta * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
 
     const zoomCenter = f => {
@@ -897,19 +1122,12 @@
         const m = location.hash.match(/^#([\w-]+)$/);
         const hash = m ? m[1] : '';
         let f;
-        if (eventById.has(hash)) return selectEvent(hash);
+        if (eventById.has(hash)) return showEventLine(hash);
         if (hash.startsWith('g-') && goalById.has(hash.slice(2))) return selectGoal(hash.slice(2));
         if ((f = hash.match(/^f-(\d+)(?:-(\d+))?$/)) && data.pages[+f[1]]) {
             return openFlow(+f[1], firstEventOfPage.get(+f[1]) || null, f[2] != null && data.pages[+f[1]].flow.n[+f[2]] ? +f[2] : null);
         }
-        renderMap();
-        showIntro();
-        // 從第一年開頭看起
-        const r = svg.getBoundingClientRect();
-        view.k = Math.min(0.85, r.width / (mapLayout.otherX + NODE_W / 2 - mapLayout.left + 160));
-        view.x = 12 - (mapLayout.left - 140) * view.k;
-        view.y = 20;
-        applyView();
+        goHome();
     }
 
     fetch('data/story.json')
@@ -917,6 +1135,8 @@
         .then(d => {
             load(d);
             route();
+            // 手動改網址的 # 或按上一頁時跟著切換（程式自己改網址用 replaceState，不會觸發）
+            window.addEventListener('hashchange', route);
         })
         .catch(err => {
             const banner = document.getElementById('banner');

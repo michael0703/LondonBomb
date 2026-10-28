@@ -29,9 +29,21 @@
 
     <main class="layout">
         <section class="canvas" id="canvas">
-            <div class="crumb" id="crumb" hidden>
-                <button id="crumb-back" type="button">← 回到事件地圖</button>
-                <span>事件流程圖：<b id="crumb-title"></b></span>
+            <div class="crumb" id="crumb" hidden></div>
+            <div class="home" id="home">
+                <h2>想查哪條路線？</h2>
+                <p>在上面的搜尋框輸入事件、選項或結局，例如「小梅 結緣」「喇嗲」「慷慨就義」，或直接選一條結緣攻略。畫面只會顯示那條路線上的事件。</p>
+                <h3>結緣攻略</h3>
+                <div class="chips big" id="home-romance"></div>
+                <details>
+                    <summary>結局：汗青書</summary>
+                    <div class="chips" id="home-ends"></div>
+                </details>
+                <details>
+                    <summary>猝死結局：生死簿</summary>
+                    <div class="chips" id="home-badends"></div>
+                </details>
+                <button class="ghost" id="home-map" type="button">顯示完整地圖（所有事件與路線）</button>
             </div>
             <svg id="tree" xmlns="http://www.w3.org/2000/svg">
                 <g id="viewport">
